@@ -11,8 +11,7 @@ hospedagem de arquivos estáticos.
 2. **Conectar o GitHub** e autorizar o repositório `briuno/fgldashboards`.
 3. Configure o deploy:
    - **Repositório:** `briuno/fgldashboards`
-   - **Branch:** `claude/erp-data-dashboard-e1drny`
-     (ou `main` — se preferir publicar de `main`, me peça para fazer o merge)
+   - **Branch:** `main`
    - **Framework:** Next.js (deve ser detectado automaticamente)
    - **Build command:** `npm run build` (padrão)
    - **Start command:** `npm start` (padrão)
@@ -34,7 +33,7 @@ hospedagem de arquivos estáticos.
 - Para testar o login: crie um usuário no Supabase → **Authentication → Users → Add user**.
 
 ## Para os dados reais (M1 — depois)
-1. Rodar as **migrations** no Supabase (ver `docs/ATIVACAO.md`).
+1. **Migrations** no Supabase — já aplicadas no M0 (fonte: `supabase/migrations/`).
 2. Conectar o **Tier2** (Edge Function `tier2-introspect`) e a sincronização diária.
 3. Ligar a Visão Executiva aos dados reais.
 
