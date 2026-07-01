@@ -1,7 +1,8 @@
-// Helpers de acesso à API do Tier2.
-// PROVISÓRIO: os caminhos de login/spec são "tentativas" com base em padrões
-// comuns de APIs REST/.NET. Serão fixados quando confirmarmos o swagger real
-// (rodando a função tier2-introspect no Supabase, onde a saída de rede é aberta).
+// Cliente da API do Tier2 Cargo (DevExpress XAF / OData v4).
+// Validado em 2026-07-01 contra https://t2app-api.tier2systems.com:
+//   - Auth:     POST /api/Authentication/Authenticate  { UserName, Password }  -> JWT (texto puro no body).
+//   - Dados:    GET  /api/odata/{Entidade}   ($top, $skip, $filter, $orderby, $select).
+//   - Contagem: GET  /api/odata/{Entidade}/$count   (o "$count=true" inline devolve 404 nessa API).
 
 export type Tier2Env = {
   baseUrl: string;
@@ -19,101 +20,110 @@ export function getTier2Env(): Tier2Env {
   };
 }
 
-const SPEC_PATHS = [
-  "/swagger/v1/swagger.json",
-  "/openapi/v1.json",
-  "/swagger/docs/v1",
-  "/swagger/v1/swagger.yaml",
-];
+/** Autentica e devolve o JWT (texto puro). Lança erro em caso de falha. */
+export async function authenticate(env: Tier2Env): Promise<string> {
+  if (!env.username || !env.password) {
+    throw new Error("TIER2_USERNAME/TIER2_PASSWORD ausentes — defina os secrets.");
+  }
+  const res = await fetch(`${env.baseUrl}/api/Authentication/Authenticate`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json, text/plain" },
+    body: JSON.stringify({ UserName: env.username, Password: env.password }),
+  });
+  const text = (await res.text()).trim();
+  if (!res.ok) throw new Error(`Auth Tier2 falhou (${res.status}): ${text.slice(0, 200)}`);
+  // O corpo é o JWT cru; alguns proxies envolvem em aspas.
+  const token = text.replace(/^"|"$/g, "");
+  if (!token.startsWith("ey")) {
+    throw new Error(`Auth respondeu 200 mas o corpo não parece um JWT: ${token.slice(0, 60)}`);
+  }
+  return token;
+}
 
-export type SpecResult = {
-  url: string;
-  spec: Record<string, unknown>;
-  status: number;
+export type ODataParams = {
+  top?: number;
+  skip?: number;
+  filter?: string;
+  orderby?: string;
+  select?: string;
+  expand?: string;
 };
 
+function buildODataUrl(baseUrl: string, entity: string, p: ODataParams): string {
+  const qs = new URLSearchParams();
+  if (p.top != null) qs.set("$top", String(p.top));
+  if (p.skip != null) qs.set("$skip", String(p.skip));
+  if (p.filter) qs.set("$filter", p.filter);
+  if (p.orderby) qs.set("$orderby", p.orderby);
+  if (p.select) qs.set("$select", p.select);
+  if (p.expand) qs.set("$expand", p.expand);
+  const q = qs.toString();
+  return `${baseUrl}/api/odata/${entity}${q ? `?${q}` : ""}`;
+}
+
+/** Busca uma página (array `value`) de uma entidade OData. */
+export async function odataGet<T = Record<string, unknown>>(
+  env: Tier2Env,
+  token: string,
+  entity: string,
+  params: ODataParams = {},
+): Promise<T[]> {
+  const res = await fetch(buildODataUrl(env.baseUrl, entity, params), {
+    headers: { accept: "application/json", authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    throw new Error(`OData ${entity} falhou (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  }
+  const data = (await res.json()) as { value?: T[] };
+  return data.value ?? [];
+}
+
+/** Conta registros de uma entidade (endpoint /$count desta API). */
+export async function odataCount(
+  env: Tier2Env,
+  token: string,
+  entity: string,
+  filter?: string,
+): Promise<number> {
+  const qs = filter ? `?$filter=${encodeURIComponent(filter)}` : "";
+  const res = await fetch(`${env.baseUrl}/api/odata/${entity}/$count${qs}`, {
+    headers: { accept: "text/plain", authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Count ${entity} falhou (${res.status})`);
+  return Number((await res.text()).trim());
+}
+
+/** Percorre TODAS as páginas de uma entidade (backfill / sync incremental via $filter). */
+export async function* odataIterate<T = Record<string, unknown>>(
+  env: Tier2Env,
+  token: string,
+  entity: string,
+  params: Omit<ODataParams, "top" | "skip"> & { pageSize?: number } = {},
+): AsyncGenerator<T[]> {
+  const pageSize = params.pageSize ?? 500;
+  let skip = 0;
+  for (;;) {
+    const page = await odataGet<T>(env, token, entity, { ...params, top: pageSize, skip });
+    if (page.length === 0) break;
+    yield page;
+    if (page.length < pageSize) break;
+    skip += pageSize;
+  }
+}
+
+/** Descobre o OpenAPI/swagger (público) — útil para introspecção/inventário. */
+const SPEC_PATHS = ["/swagger/v1/swagger.json", "/openapi/v1.json"];
 export async function discoverSpec(
   baseUrl: string,
-  headers: Record<string, string> = {}
-): Promise<SpecResult | null> {
+): Promise<{ url: string; spec: Record<string, unknown> } | null> {
   for (const p of SPEC_PATHS) {
-    const url = `${baseUrl}${p}`;
     try {
-      const res = await fetch(url, {
-        headers: { Accept: "application/json", ...headers },
-      });
-      const ct = res.headers.get("content-type") ?? "";
-      if (res.ok && ct.includes("json")) {
-        return {
-          url,
-          spec: (await res.json()) as Record<string, unknown>,
-          status: res.status,
-        };
+      const res = await fetch(`${baseUrl}${p}`, { headers: { accept: "application/json" } });
+      if (res.ok && (res.headers.get("content-type") ?? "").includes("json")) {
+        return { url: `${baseUrl}${p}`, spec: (await res.json()) as Record<string, unknown> };
       }
     } catch (_e) {
       // tenta o próximo caminho
-    }
-  }
-  return null;
-}
-
-type LoginCandidate = {
-  path: string;
-  form?: boolean;
-  body: (u: string, p: string) => Record<string, string>;
-};
-
-const LOGIN_PATHS: LoginCandidate[] = [
-  { path: "/api/Auth/login", body: (u, p) => ({ username: u, password: p }) },
-  { path: "/api/auth/login", body: (u, p) => ({ username: u, password: p }) },
-  { path: "/api/authenticate", body: (u, p) => ({ username: u, password: p }) },
-  { path: "/api/login", body: (u, p) => ({ username: u, password: p }) },
-  {
-    path: "/connect/token",
-    form: true,
-    body: (u, p) => ({ grant_type: "password", username: u, password: p }),
-  },
-];
-
-export type LoginResult = {
-  token: string;
-  endpoint: string;
-};
-
-export async function tryLogin(env: Tier2Env): Promise<LoginResult | null> {
-  if (!env.username || !env.password) return null;
-
-  for (const cand of LOGIN_PATHS) {
-    const url = `${env.baseUrl}${cand.path}`;
-    try {
-      const payload = cand.body(env.username, env.password);
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": cand.form
-            ? "application/x-www-form-urlencoded"
-            : "application/json",
-          Accept: "application/json",
-        },
-        body: cand.form
-          ? new URLSearchParams(payload).toString()
-          : JSON.stringify(payload),
-      });
-      if (!res.ok) continue;
-      const data = (await res.json().catch(() => null)) as Record<
-        string,
-        unknown
-      > | null;
-      if (!data) continue;
-      const token =
-        (data.token as string) ??
-        (data.access_token as string) ??
-        (data.accessToken as string) ??
-        (data.jwt as string) ??
-        ((data.data as Record<string, unknown> | undefined)?.token as string);
-      if (token) return { token: String(token), endpoint: cand.path };
-    } catch (_e) {
-      // tenta o próximo endpoint
     }
   }
   return null;

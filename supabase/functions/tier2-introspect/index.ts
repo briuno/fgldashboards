@@ -1,9 +1,8 @@
-// Spike de conexão com o Tier2.
-// Roda no Supabase (saída de rede aberta) para: (1) validar credenciais,
-// (2) descobrir o OpenAPI/swagger e (3) listar as entidades/endpoints.
-// Isso guia a modelagem das tabelas e a ingestão nos próximos passos (M1).
+// Health-check / inventário da conexão com o Tier2 (roda no Supabase).
+// Valida credenciais, confirma o OpenAPI e lista as entidades OData disponíveis.
+// Útil para checar que os secrets TIER2_* estão certos antes da ingestão.
 
-import { discoverSpec, getTier2Env, tryLogin } from "../_shared/tier2.ts";
+import { authenticate, discoverSpec, getTier2Env } from "../_shared/tier2.ts";
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body, null, 2), {
@@ -19,39 +18,33 @@ Deno.serve(async () => {
     hasCreds: Boolean(env.username && env.password),
   };
 
-  // 1) Tenta autenticar (valida credenciais e habilita specs protegidos)
-  const auth = await tryLogin(env);
-  result.auth = auth ? { ok: true, endpoint: auth.endpoint } : { ok: false };
-  const authHeaders = auth ? { Authorization: `Bearer ${auth.token}` } : {};
-
-  // 2) Descobre o OpenAPI (sem auth e, se preciso, com auth)
-  let found = await discoverSpec(env.baseUrl);
-  if (!found && auth) found = await discoverSpec(env.baseUrl, authHeaders);
-
-  if (!found) {
-    return json(
-      {
-        ...result,
-        ok: false,
-        message:
-          "OpenAPI/swagger não encontrado. Confirme TIER2_BASE_URL e as credenciais.",
-      },
-      502
-    );
+  // 1) Autentica (valida os secrets)
+  try {
+    const token = await authenticate(env);
+    result.auth = { ok: true, tokenLength: token.length };
+  } catch (e) {
+    result.auth = { ok: false, error: String((e as Error).message) };
   }
 
+  // 2) Descobre o OpenAPI (público) e lista as entidades OData
+  const found = await discoverSpec(env.baseUrl);
+  if (!found) {
+    return json({ ...result, ok: false, message: "OpenAPI não encontrado — confirme TIER2_BASE_URL." }, 502);
+  }
   const spec = found.spec as {
     info?: { title?: string; version?: string };
     paths?: Record<string, Record<string, unknown>>;
-    components?: { schemas?: Record<string, unknown> };
-    definitions?: Record<string, unknown>;
   };
-
   const paths = Object.keys(spec.paths ?? {});
-  const schemas = Object.keys(
-    spec.components?.schemas ?? spec.definitions ?? {}
-  );
-  const getEndpoints = paths.filter((p) => spec.paths?.[p]?.get);
+
+  // Raízes OData: /api/odata/{Entidade}  (sem chave, sem $count, sem sub-recurso)
+  const entities = Array.from(
+    new Set(
+      paths
+        .map((p) => /^\/api\/odata\/([A-Za-z0-9]+)$/.exec(p)?.[1])
+        .filter((x): x is string => Boolean(x)),
+    ),
+  ).sort();
 
   return json({
     ...result,
@@ -59,12 +52,7 @@ Deno.serve(async () => {
     specUrl: found.url,
     title: spec.info?.title,
     version: spec.info?.version,
-    counts: {
-      paths: paths.length,
-      schemas: schemas.length,
-      getEndpoints: getEndpoints.length,
-    },
-    getEndpoints: getEndpoints.slice(0, 250),
-    schemas: schemas.slice(0, 400),
+    entityCount: entities.length,
+    entities,
   });
 });
