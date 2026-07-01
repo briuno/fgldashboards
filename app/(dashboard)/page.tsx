@@ -58,9 +58,9 @@ export default async function VisaoExecutivaPage() {
       <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
         <Info className="mt-0.5 size-4 shrink-0" />
         <p>
-          <span className="font-medium">Dados reais do Tier2.</span> Backfill inicial em ~77% do
-          histórico. Receita/custo e o lucro dos meses mais recentes entram na próxima
-          sincronização (Edge Function + pg_cron).
+          <span className="font-medium">Dados reais do Tier2</span>, com sincronização diária
+          ativa (Edge Function + pg_cron). Receita/custo e o lucro de alguns meses entram ao
+          ligarmos a view de faturamento (ShipmentProfitInvoiceView).
         </p>
       </div>
 
