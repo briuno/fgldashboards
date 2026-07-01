@@ -1,0 +1,7 @@
+project_id = "ifjpzyqjdagnxygbkwpm"
+
+# Spike de introspeccao — temporariamente publico para facilitar o teste inicial.
+# Depois de validar a conexao, definir verify_jwt = true (ou remover a funcao).
+[functions.tier2-introspect]
+verify_jwt = false
+
