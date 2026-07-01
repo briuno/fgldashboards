@@ -51,7 +51,7 @@ async function fetchByFilter(token: string, filter: string, skip: number, size: 
       return ((await res.json()).value ?? []) as Row[];
     } catch (e) {
       lastErr = String((e as Error).message);
-      await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
+      await new Promise((r) => setTimeout(r, 700 * (i + 1)));
     }
   }
   throw new Error(lastErr);
@@ -64,20 +64,32 @@ async function upsert(sql: Sql, rows: Row[]): Promise<void> {
             on conflict (oid) do update set data = sp.data || excluded.data, synced_at = now()`;
 }
 
-// Percorre um filtro inteiro; janela que falha é subdividida (pega os pedaços bons).
+// Recupera um sub-range que falhou, dividindo ao meio até isolar a(s) linha(s) que o Tier2 nega.
+async function recoverRange(sql: Sql, token: string, filter: string, orderby: string, skip: number, size: number, started: number): Promise<{ got: number; lost: number }> {
+  if (Date.now() - started > BUDGET_MS) return { got: 0, lost: 0 };
+  try {
+    const rows = await fetchByFilter(token, filter, skip, size, orderby);
+    if (rows.length) await upsert(sql, rows);
+    return { got: rows.length, lost: 0 };
+  } catch {
+    if (size <= 4) return { got: 0, lost: size }; // bloco irrecuperável (linha que o Tier2 dá 502)
+    const half = Math.floor(size / 2);
+    const a = await recoverRange(sql, token, filter, orderby, skip, half, started);
+    const b = await recoverRange(sql, token, filter, orderby, skip + half, size - half, started);
+    return { got: a.got + b.got, lost: a.lost + b.lost };
+  }
+}
+
+// Percorre um filtro inteiro; janela que falha é recuperada recursivamente (perde só ~4 linhas por registro quebrado).
 async function recoverByFilter(sql: Sql, token: string, filter: string, orderby: string, size: number, started: number) {
-  let skip = 0, got = 0, holes = 0;
+  let skip = 0, got = 0, lost = 0;
   for (;;) {
     if (Date.now() - started > BUDGET_MS) break;
     let rows: Row[] | null = null;
     try { rows = await fetchByFilter(token, filter, skip, size, orderby); }
     catch {
-      const sub = Math.max(10, Math.floor(size / 5));
-      for (let s = skip; s < skip + size; s += sub) {
-        if (Date.now() - started > BUDGET_MS) break;
-        try { const r = await fetchByFilter(token, filter, s, sub, orderby); if (r.length) { await upsert(sql, r); got += r.length; } }
-        catch { holes++; }
-      }
+      const r = await recoverRange(sql, token, filter, orderby, skip, size, started);
+      got += r.got; lost += r.lost;
       skip += size;
       continue;
     }
@@ -86,7 +98,7 @@ async function recoverByFilter(sql: Sql, token: string, filter: string, orderby:
     got += rows.length; skip += rows.length;
     if (rows.length < size) break;
   }
-  return { got, holes };
+  return { got, lost };
 }
 
 async function processMonthFast(sql: Sql, token: string, ym: string): Promise<void> {
@@ -116,7 +128,7 @@ Deno.serve(async (req) => {
     const token = await auth();
 
     if (params.get("nulldate")) {
-      log.nulldate = await recoverByFilter(sql, token, "ProcessDate eq null", "ProcessID asc", 100, started);
+      log.nulldate = await recoverByFilter(sql, token, "ProcessDate eq null", "ProcessID asc", 150, started);
     } else if (params.get("months")) {
       const results: Record<string, unknown>[] = [];
       for (const ym of params.get("months")!.split(",").map((s) => s.trim()).filter(Boolean)) {
