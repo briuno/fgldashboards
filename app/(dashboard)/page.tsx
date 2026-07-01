@@ -1,4 +1,4 @@
-import { Package, DollarSign, Ship, TrendingUp, Info } from "lucide-react";
+import { Package, Clock, TrendingUp, Ship, Info } from "lucide-react";
 
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { AreaTrend, type AreaTrendPoint } from "@/components/charts/area-trend";
@@ -10,7 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { getMonthlyKpis, getTopClients } from "@/lib/queries/kpi";
+import { getTotals, getMonthlyKpis, getTopClients } from "@/lib/queries/kpi";
 
 const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 const num = new Intl.NumberFormat("pt-BR");
@@ -27,17 +27,11 @@ function mesLabel(d: string) {
 }
 
 export default async function VisaoExecutivaPage() {
-  const [monthly, topClients] = await Promise.all([getMonthlyKpis(), getTopClients(6)]);
-
-  const totals = monthly.reduce(
-    (a, m) => ({
-      processos: a.processos + Number(m.processos),
-      lucro_liquido: a.lucro_liquido + Number(m.lucro_liquido),
-      lucro_bruto: a.lucro_bruto + Number(m.lucro_bruto),
-      teu: a.teu + Number(m.teu),
-    }),
-    { processos: 0, lucro_liquido: 0, lucro_bruto: 0, teu: 0 }
-  );
+  const [totals, monthly, topClients] = await Promise.all([
+    getTotals(),
+    getMonthlyKpis(),
+    getTopClients(6),
+  ]);
 
   const trend: AreaTrendPoint[] = monthly
     .slice(-14)
@@ -50,7 +44,8 @@ export default async function VisaoExecutivaPage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Visão Executiva</h1>
           <p className="text-muted-foreground text-sm">
-            Panorama geral — dados do Tier2 · {num.format(totals.processos)} processos (2021–2026)
+            Panorama geral — dados do Tier2 · {num.format(Number(totals.processos_total))} processos
+            {" "}({num.format(Number(totals.processos_novos))} novos sem ETA)
           </p>
         </div>
       </div>
@@ -65,10 +60,30 @@ export default async function VisaoExecutivaPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard title="Processos" value={num.format(totals.processos)} hint="Embarques (2021–2026)" icon={Package} />
-        <KpiCard title="Lucro líquido" value={brl.format(totals.lucro_liquido)} hint="Acumulado" icon={TrendingUp} />
-        <KpiCard title="Lucro bruto" value={brl.format(totals.lucro_bruto)} hint="Antes de impostos/ajustes" icon={DollarSign} />
-        <KpiCard title="TEU" value={num.format(totals.teu)} hint="Contêineres movimentados" icon={Ship} />
+        <KpiCard
+          title="Processos"
+          value={num.format(Number(totals.processos_total))}
+          hint={`${num.format(Number(totals.processos_com_data))} com ETA`}
+          icon={Package}
+        />
+        <KpiCard
+          title="Novos (sem ETA)"
+          value={num.format(Number(totals.processos_novos))}
+          hint="Pipeline — sem data prevista"
+          icon={Clock}
+        />
+        <KpiCard
+          title="Lucro líquido"
+          value={brl.format(Number(totals.lucro_liquido))}
+          hint="Acumulado"
+          icon={TrendingUp}
+        />
+        <KpiCard
+          title="TEU"
+          value={num.format(Number(totals.teu))}
+          hint="Contêineres movimentados"
+          icon={Ship}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -78,7 +93,7 @@ export default async function VisaoExecutivaPage() {
               <CardTitle className="text-base">Processos por mês</CardTitle>
               <Badge variant="secondary">últimos 14 meses</Badge>
             </div>
-            <CardDescription>Volume de embarques por ProcessDate — Tier2</CardDescription>
+            <CardDescription>Embarques com ETA por mês (ProcessDate) — Tier2</CardDescription>
           </CardHeader>
           <CardContent>
             <AreaTrend data={trend} />
