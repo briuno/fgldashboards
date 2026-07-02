@@ -10,7 +10,7 @@
 import postgres from "https://deno.land/x/postgresjs@v3.4.5/mod.js";
 
 const BASE = (Deno.env.get("TIER2_BASE_URL") ?? "https://t2app-api.tier2systems.com").replace(/\/+$/, "");
-const SELECT = "Oid,ProcessID,ProcessDate,CreatedOn,ShipmentUpdateOn,CustomerOID,CustomerName,SalesPerson,ProcessType,ShipmentExpoImpo,QtyTEU,Status";
+const SELECT = "Oid,ProcessID,ProcessDate,CreatedOn,FirstCreatedOn,ShipmentUpdateOn,CustomerOID,CustomerName,SalesPerson,ProcessType,ShipmentExpoImpo,QtyTEU,Status,ForecastGrossProfit,ForecastNetProfit";
 const BUDGET_MS = 110_000;
 const START_MONTH = "2020-01";
 const STOP_MONTH = "2027-12";
@@ -102,13 +102,14 @@ async function recoverByFilter(sql: Sql, token: string, filter: string, orderby:
 }
 
 async function processMonthFast(sql: Sql, token: string, ym: string): Promise<void> {
+  // Página 50: os campos de forecast são computados e pesam a 150 (conexão cai).
   let skip = 0;
   for (;;) {
-    const rows = await fetchByFilter(token, monthFilter(ym), skip, 150, "ProcessDate asc");
+    const rows = await fetchByFilter(token, monthFilter(ym), skip, 50, "ProcessDate asc");
     if (rows.length === 0) break;
     await upsert(sql, rows);
     skip += rows.length;
-    if (rows.length < 150) break;
+    if (rows.length < 50) break;
   }
 }
 
@@ -139,6 +140,9 @@ Deno.serve(async (req) => {
     } else {
       await sql`insert into etl.sync_state (entity, mode, delta_cursor)
                 values ('ShipmentProcessView','full',${START_MONTH}) on conflict (entity) do nothing`;
+      if (params.get("reset")) {
+        await sql`update etl.sync_state set mode='full', delta_cursor=${START_MONTH}, updated_at=now() where entity='ShipmentProcessView'`;
+      }
       const st = (await sql`select delta_cursor,
                   to_char((coalesce(high_water_mark,'2020-01-01'::timestamptz) - interval '3 minutes') at time zone '-03:00',
                           'YYYY-MM-DD"T"HH24:MI:SS')||'-03:00' as hwm_lit
@@ -151,7 +155,7 @@ Deno.serve(async (req) => {
         let monthsDone = 0, consec = 0;
         while (Date.now() - started < BUDGET_MS && cursor <= STOP_MONTH) {
           try { await processMonthFast(sql, token, cursor); monthsDone++; consec = 0; }
-          catch (e) { failed.push({ month: cursor, error: String((e as Error).message).slice(0, 100) }); if (++consec >= 8) { log.systemic = true; break; } }
+          catch (e) { failed.push({ month: cursor, error: String((e as Error).message).slice(0, 100) }); if (++consec >= 25) { log.systemic = true; break; } }
           cursor = nextMonth(cursor);
           await sql`update etl.sync_state set delta_cursor=${cursor}, updated_at=now() where entity='ShipmentProcessView'`;
         }
