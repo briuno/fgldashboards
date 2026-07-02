@@ -1,7 +1,8 @@
-import { Hash, Package, Users, TrendingUp, XCircle } from "lucide-react";
+import { Hash, Package, Users, TrendingUp, XCircle, Award } from "lucide-react";
 
 import { PageHeader, SectionHeader } from "@/components/dashboard/page-header";
 import { KpiCard } from "@/components/dashboard/kpi-card";
+import { InsightCard } from "@/components/dashboard/insight-card";
 import { BarList, aggregate } from "@/components/dashboard/bar-list";
 import { Segmented } from "@/components/dashboard/segmented";
 import { EmptyState } from "@/components/dashboard/empty-state";
@@ -24,12 +25,22 @@ import {
 import { getSemanas, getDetalheSemana, getCancelados } from "@/lib/queries/comercial";
 
 const num = new Intl.NumberFormat("pt-BR");
+const pct = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
 const brl = new Intl.NumberFormat("pt-BR", {
   style: "currency",
   currency: "BRL",
   notation: "compact",
   maximumFractionDigits: 1,
 });
+
+function varLabel(cur: number, prev: number | undefined): { label: string; direction: "up" | "down" | "neutral" } | undefined {
+  if (prev == null || prev === 0) return undefined;
+  const v = (cur / prev - 1) * 100;
+  return {
+    label: `${v >= 0 ? "+" : ""}${pct.format(v)}% vs sem. anterior`,
+    direction: v > 0 ? "up" : v < 0 ? "down" : "neutral",
+  };
+}
 
 export default async function ComercialPage({
   searchParams,
@@ -54,13 +65,25 @@ export default async function ComercialPage({
   const porCliente = aggregate(convertidos, (r) => r.customer_name, () => 1);
   const profitVendedor = aggregate(convertidos, (r) => r.sales_person, (r) => Number(r.forecast_gross));
 
+  // Comparação com a semana anterior (dados já carregados em `semanas`)
+  const semAtual = semanas.find((s) => s.semana === semanaSel);
+  const semAnterior = semanas.find((s) => s.semana === semanaSel - 1);
+  const trendConv = varLabel(Number(semAtual?.convertidos ?? convertidos.length), semAnterior ? Number(semAnterior.convertidos) : undefined);
+  const trendProfit = varLabel(profitPrev, semAnterior ? Number(semAnterior.profit_previsto) : undefined);
+
+  // Destaques derivados da própria semana / ano
+  const topVend = porVendedor[0];
+  const topVendProfit = topVend ? profitVendedor.find((p) => p.label === topVend.label) : undefined;
+  const cancPorCliente = aggregate(cancelados, (r) => r.customer_name, () => 1);
+  const topCanc = cancPorCliente[0];
+
   const trend: AreaTrendPoint[] = semanas.map((s) => ({ label: `S${s.semana}`, value: s.convertidos }));
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
       <PageHeader
         title="Comercial"
-        description={`Processos convertidos e profit previsto — semana ${semanaSel} de ${ano}`}
+        description={`Quantos negócios convertemos e quem puxou o resultado — semana ${semanaSel} de ${ano}`}
       >
         <Segmented
           scroll
@@ -73,39 +96,91 @@ export default async function ComercialPage({
         />
       </PageHeader>
 
+      {/* 01 · Resultado da semana */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard title="Nº da Semana" value={String(semanaSel)} hint={`Ano ${ano}`} icon={Hash} />
-        <KpiCard title="Processos convertidos" value={num.format(convertidos.length)} hint="Na semana" icon={Package} />
+        <KpiCard
+          title="Processos convertidos"
+          value={num.format(convertidos.length)}
+          trend={trendConv}
+          hint={trendConv ? undefined : "Na semana"}
+          icon={Package}
+        />
         <KpiCard title="Clientes" value={num.format(clientes)} hint="Distintos na semana" icon={Users} />
-        <KpiCard title="Gross Profit Previsto" value={brl.format(profitPrev)} hint="Convertidos da semana" icon={TrendingUp} />
+        <KpiCard
+          title="Gross Profit Previsto"
+          value={brl.format(profitPrev)}
+          trend={trendProfit}
+          hint={trendProfit ? undefined : "Convertidos da semana"}
+          icon={TrendingUp}
+        />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Processos convertidos por semana</CardTitle>
-          <CardDescription>Ano {ano} — semana (domingo) de FirstCreatedOn</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <AreaTrend data={trend} name="Convertidos" />
-        </CardContent>
-      </Card>
+      {/* Leitura rápida */}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {topVend && (
+          <InsightCard
+            kicker="Destaque da semana"
+            icon={Award}
+            title={`${topVend.label} lidera com ${num.format(topVend.value)} conversões`}
+            description={
+              topVendProfit
+                ? `${brl.format(topVendProfit.value)} em profit previsto (${profitPrev > 0 ? pct.format((topVendProfit.value / profitPrev) * 100) : 0}% da semana).`
+                : undefined
+            }
+          />
+        )}
+        {semAnterior && trendConv && (
+          <InsightCard
+            kicker="Ritmo semanal"
+            variant={trendConv.direction === "down" ? "negative" : "positive"}
+            title={`S${semanaSel}: ${num.format(convertidos.length)} × S${semanaSel - 1}: ${num.format(Number(semAnterior.convertidos))}`}
+            description="Conversões da semana selecionada contra a semana imediatamente anterior."
+          />
+        )}
+        {topCanc && (
+          <InsightCard
+            kicker="Atenção · cancelamentos"
+            variant="warning"
+            title={`${topCanc.label}: ${num.format(topCanc.value)} cancelados em ${ano}`}
+            description={`Maior volume de cancelamento do ano (${cancelados.length > 0 ? pct.format((topCanc.value / cancelados.length) * 100) : 0}% do total). Detalhe completo no fim da página.`}
+          />
+        )}
+      </div>
 
+      {/* 02 · Diagnóstico */}
+      <SectionHeader
+        kicker="02 · Diagnóstico"
+        title="Quem puxou o resultado da semana"
+        description="Conversões quebradas por vendedor, tipo de operação e cliente"
+      />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <BarList title="Convertidos por Vendedor" items={porVendedor} />
         <BarList title="Convertidos por Tipo" items={porTipo} />
         <BarList title="Convertidos por Cliente" items={porCliente} />
       </div>
-
       <div className="grid gap-4 xl:grid-cols-2">
         <BarList title="Profit Previsto por Vendedor" items={profitVendedor} currency />
       </div>
 
-      {/* ------ Cancelados (ano) — por "Criado Em" ------ */}
+      {/* 03 · Evolução */}
       <SectionHeader
-        title="Processos Cancelados"
-        description={`Ano ${ano} inteiro — semana por data de criação (Criado Em)`}
+        kicker="03 · Evolução"
+        title="Conversões ao longo do ano"
+        description={`Semana a semana em ${ano} — semana começa no domingo (FirstCreatedOn)`}
       />
+      <Card>
+        <CardContent className="pt-2">
+          <AreaTrend data={trend} name="Convertidos" />
+        </CardContent>
+      </Card>
 
+      {/* 04 · Ofensores */}
+      <SectionHeader
+        kicker="04 · Ofensores"
+        title="Processos Cancelados"
+        description={`Ano ${ano} inteiro — semana pela data de criação (Criado Em)`}
+      />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <KpiCard title="Processos cancelados" value={num.format(cancelados.length)} hint={`Ano ${ano}`} icon={XCircle} />
         <KpiCard
@@ -121,21 +196,23 @@ export default async function ComercialPage({
           icon={Hash}
         />
       </div>
-
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <BarList title="Cancelados por Vendedor" items={aggregate(cancelados, (r) => r.sales_person, () => 1)} />
         <BarList title="Cancelados por Tipo" items={aggregate(cancelados, (r) => r.process_type, () => 1)} />
-        <BarList title="Cancelados por Cliente" items={aggregate(cancelados, (r) => r.customer_name, () => 1)} />
+        <BarList title="Cancelados por Cliente" items={cancPorCliente} />
       </div>
 
+      {/* 05 · Detalhe */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Cancelados — detalhe</CardTitle>
-          <CardDescription>Mais recentes primeiro · {num.format(cancelados.length)} no ano</CardDescription>
+          <CardTitle className="text-base">Cancelados — detalhe operacional</CardTitle>
+          <CardDescription>
+            Os 30 mais recentes de {num.format(cancelados.length)} no ano — para investigar caso a caso
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {cancelados.length === 0 ? (
-            <EmptyState className="h-[160px]" />
+            <EmptyState className="h-[160px]" description="Nenhum processo cancelado no ano selecionado." />
           ) : (
             <Table>
               <TableHeader>

@@ -24,10 +24,21 @@ export function PageHeader({ title, description, children, className }: PageHead
 }
 
 /** Cabeçalho de seção dentro de uma página (agrupa blocos de cards/gráficos). */
-export function SectionHeader({ title, description, children, className }: PageHeaderProps) {
+export function SectionHeader({
+  title,
+  description,
+  kicker,
+  children,
+  className,
+}: PageHeaderProps & { kicker?: string }) {
   return (
     <div className={cn("mt-2 flex flex-wrap items-end justify-between gap-x-6 gap-y-2", className)}>
       <div className="min-w-0">
+        {kicker && (
+          <p className="text-primary text-[11px] font-semibold tracking-widest uppercase">
+            {kicker}
+          </p>
+        )}
         <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
         {description && (
           <p className="text-muted-foreground mt-0.5 text-sm">{description}</p>

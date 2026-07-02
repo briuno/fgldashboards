@@ -1,7 +1,11 @@
-import { Package, Users, DollarSign, TrendingUp } from "lucide-react";
+import { Package, Users, DollarSign, TrendingUp, SlidersHorizontal, CalendarRange } from "lucide-react";
 
+import { PageHeader, SectionHeader } from "@/components/dashboard/page-header";
 import { KpiCard } from "@/components/dashboard/kpi-card";
+import { InsightCard } from "@/components/dashboard/insight-card";
 import { FilterSelect } from "@/components/dashboard/filter-select";
+import { Segmented } from "@/components/dashboard/segmented";
+import { EmptyState } from "@/components/dashboard/empty-state";
 import { MonthlyBar, type MonthlyBarPoint } from "@/components/charts/monthly-bar";
 import { GpStackedBar, type GpStackedPoint } from "@/components/charts/gp-stacked-bar";
 import {
@@ -11,6 +15,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
   getClientesFinanceiro,
   getFinanceiroMensal,
@@ -26,6 +39,7 @@ const MESES = [
 
 const num = new Intl.NumberFormat("pt-BR");
 const dec = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pctFmt = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
 const brlCompact = new Intl.NumberFormat("pt-BR", {
   style: "currency", currency: "BRL", notation: "compact", maximumFractionDigits: 1,
 });
@@ -35,8 +49,11 @@ function Variacao({ prev, curr }: { prev: number | null; curr: number | null }) 
   const v = curr / prev - 1;
   const positive = v >= 0;
   return (
-    <span className="inline-flex items-center justify-end gap-1.5 tabular-nums">
-      <span className={`inline-block size-2.5 rounded-full ${positive ? "bg-emerald-500" : "bg-red-500"}`} />
+    <span
+      className={`inline-flex items-center justify-end gap-1 tabular-nums ${
+        positive ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
+      }`}
+    >
       {(v * 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
     </span>
   );
@@ -45,9 +62,10 @@ function Variacao({ prev, curr }: { prev: number | null; curr: number | null }) 
 type YoyRow = { mes: number; prev: number | null; curr: number | null };
 
 function YoyTable({
-  title, ano, rows, totalPrev, totalCurr,
+  title, subtitle, ano, rows, totalPrev, totalCurr,
 }: {
   title: string;
+  subtitle?: string;
   ano: number;
   rows: YoyRow[];
   totalPrev: number | null;
@@ -57,42 +75,47 @@ function YoyTable({
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-base">{title}</CardTitle>
+        {subtitle && <CardDescription>{subtitle}</CardDescription>}
       </CardHeader>
       <CardContent>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-muted-foreground border-b text-xs">
-              <th className="py-1.5 text-left font-medium">Mês</th>
-              <th className="py-1.5 text-right font-medium">{ano - 1}</th>
-              <th className="py-1.5 text-right font-medium">{ano}</th>
-              <th className="py-1.5 text-right font-medium">Variação %</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.mes} className="border-b border-dashed last:border-0">
-                <td className="py-1.5">{MESES[r.mes - 1]}</td>
-                <td className="py-1.5 text-right tabular-nums">
-                  {r.prev !== null ? dec.format(r.prev) : ""}
-                </td>
-                <td className="py-1.5 text-right tabular-nums">
-                  {r.curr !== null ? dec.format(r.curr) : ""}
-                </td>
-                <td className="py-1.5 text-right">
-                  <Variacao prev={r.prev} curr={r.curr} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="border-t font-semibold">
-              <td className="py-2">Total</td>
-              <td className="py-2 text-right tabular-nums">{totalPrev !== null ? dec.format(totalPrev) : ""}</td>
-              <td className="py-2 text-right tabular-nums">{totalCurr !== null ? dec.format(totalCurr) : ""}</td>
-              <td className="py-2 text-right"><Variacao prev={totalPrev} curr={totalCurr} /></td>
-            </tr>
-          </tfoot>
-        </table>
+        {rows.length === 0 ? (
+          <EmptyState className="h-[160px]" description="Sem dados para os filtros atuais." />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Mês</TableHead>
+                <TableHead className="text-right">{ano - 1}</TableHead>
+                <TableHead className="text-right">{ano}</TableHead>
+                <TableHead className="text-right">Variação %</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((r) => (
+                <TableRow key={r.mes}>
+                  <TableCell className="py-1.5">{MESES[r.mes - 1]}</TableCell>
+                  <TableCell className="py-1.5 text-right tabular-nums">
+                    {r.prev !== null ? dec.format(r.prev) : "—"}
+                  </TableCell>
+                  <TableCell className="py-1.5 text-right tabular-nums">
+                    {r.curr !== null ? dec.format(r.curr) : "—"}
+                  </TableCell>
+                  <TableCell className="py-1.5 text-right">
+                    <Variacao prev={r.prev} curr={r.curr} />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+            <TableFooter>
+              <TableRow className="hover:bg-transparent">
+                <TableCell>Total</TableCell>
+                <TableCell className="text-right tabular-nums">{totalPrev !== null ? dec.format(totalPrev) : "—"}</TableCell>
+                <TableCell className="text-right tabular-nums">{totalCurr !== null ? dec.format(totalCurr) : "—"}</TableCell>
+                <TableCell className="text-right"><Variacao prev={totalPrev} curr={totalCurr} /></TableCell>
+              </TableRow>
+            </TableFooter>
+          </Table>
+        )}
       </CardContent>
     </Card>
   );
@@ -117,6 +140,25 @@ function toGpPoints(rows: FinanceiroMensal[]): GpStackedPoint[] {
     diff: Number(r.gp2) - Number(r.gp1),
     total: Number(r.gp2),
   }));
+}
+
+/** Variação "mesmo período": soma só os meses que têm dados no ano corrente. */
+function samePeriod(
+  prev: FinanceiroMensal[],
+  curr: FinanceiroMensal[],
+  metric: (r: FinanceiroMensal) => number,
+) {
+  if (curr.length === 0) return undefined;
+  const meses = new Set(curr.map((r) => r.mes));
+  const somaCur = curr.reduce((a, r) => a + metric(r), 0);
+  const somaPrev = prev.filter((r) => meses.has(r.mes)).reduce((a, r) => a + metric(r), 0);
+  if (somaPrev === 0) return undefined;
+  const v = (somaCur / somaPrev - 1) * 100;
+  return {
+    label: `${v >= 0 ? "+" : ""}${pctFmt.format(v)}% vs mesmo período`,
+    direction: (v > 0 ? "up" : v < 0 ? "down" : "neutral") as "up" | "down" | "neutral",
+    valor: v,
+  };
 }
 
 export default async function FinanceiroPage({
@@ -150,48 +192,121 @@ export default async function FinanceiroPage({
   // GP1 do ano anterior pode ainda não ter sido sincronizado (campo pesado, puxado por ano).
   const gp1PrevDisponivel = prev.some((r) => Number(r.gp1) !== 0);
 
+  // Leituras derivadas dos dados carregados
+  const trendGp2 = samePeriod(prev, curr, (r) => Number(r.gp2));
+  const trendRevenue = samePeriod(prev, curr, (r) => Number(r.revenue));
+  const trendProc = samePeriod(prev, curr, (r) => Number(r.processos));
+  const melhorMes = curr.length
+    ? curr.reduce((a, b) => (Number(b.gp2) > Number(a.gp2) ? b : a))
+    : undefined;
+  const gapGp = tCurr ? Number(tCurr.gp2) - Number(tCurr.gp1) : null;
+  const gapPct = tCurr && Number(tCurr.gp2) !== 0 && gapGp !== null ? (gapGp / Number(tCurr.gp2)) * 100 : null;
+
+  const filtrosAtivos = [cliente, tipo].filter(Boolean).length;
+  const yearHref = (a: number) => {
+    const q = new URLSearchParams({ ano: String(a) });
+    if (cliente) q.set("cliente", cliente);
+    if (tipo) q.set("tipo", tipo);
+    return `/financeiro?${q.toString()}`;
+  };
+
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Financeiro</h1>
-          <p className="text-muted-foreground text-sm">
-            Performance de processos e gross profit — {ano} vs {ano - 1} (data processo)
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <FilterSelect param="cliente" value={cliente} placeholder="Cliente: Todos" options={clientes.map((c) => c.nome)} />
-          <FilterSelect param="tipo" value={tipo} placeholder="Modalidade: Todas" options={tipos.map((t) => t.nome)} />
-          <FilterSelect param="ano" value={sp.ano} placeholder="Ano: 2026" options={["2025"]} />
-        </div>
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+      <PageHeader
+        title="Financeiro"
+        description={`Quanto lucramos vs ${ano - 1} e de onde vem a diferença — data do processo`}
+      >
+        <Segmented
+          items={[2025, 2026].map((a) => ({ label: String(a), href: yearHref(a), active: a === ano }))}
+        />
+      </PageHeader>
+
+      {/* Controles de análise */}
+      <div className="bg-card flex flex-wrap items-center gap-2 rounded-xl border p-3 shadow-sm">
+        <span className="text-muted-foreground mr-1 inline-flex items-center gap-1.5 text-xs font-medium">
+          <SlidersHorizontal className="size-3.5" />
+          Filtros{filtrosAtivos > 0 ? ` (${filtrosAtivos})` : ""}
+        </span>
+        <FilterSelect param="cliente" value={cliente} placeholder="Cliente: Todos" options={clientes.map((c) => c.nome)} />
+        <FilterSelect param="tipo" value={tipo} placeholder="Modalidade: Todas" options={tipos.map((t) => t.nome)} />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard title={`Processos ${ano}`} value={tCurr ? num.format(tCurr.processos) : "—"} hint="Exclui cancelados e CONS" icon={Package} />
+      {/* 01 · Panorama */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <KpiCard
+          title={`Processos ${ano}`}
+          value={tCurr ? num.format(tCurr.processos) : "—"}
+          trend={trendProc}
+          hint={trendProc ? undefined : "Exclui cancelados e CONS"}
+          icon={Package}
+        />
         <KpiCard title={`Clientes ${ano}`} value={tCurr ? num.format(tCurr.clientes) : "—"} hint="Distintos no ano" icon={Users} />
-        <KpiCard title={`GP2 ${ano}`} value={tCurr ? brlCompact.format(Number(tCurr.gp2)) : "—"} hint="Lucro da proposta" icon={TrendingUp} />
-        <KpiCard title={`Revenue ${ano}`} value={tCurr ? brlCompact.format(Number(tCurr.revenue)) : "—"} hint="Receita da proposta" icon={DollarSign} />
+        <KpiCard
+          title={`GP2 ${ano}`}
+          value={tCurr ? brlCompact.format(Number(tCurr.gp2)) : "—"}
+          trend={trendGp2}
+          hint={trendGp2 ? undefined : "Lucro da proposta"}
+          icon={TrendingUp}
+        />
+        <KpiCard
+          title={`Revenue ${ano}`}
+          value={tCurr ? brlCompact.format(Number(tCurr.revenue)) : "—"}
+          trend={trendRevenue}
+          hint={trendRevenue ? undefined : "Receita da proposta"}
+          icon={DollarSign}
+        />
       </div>
 
+      {/* Leitura rápida */}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {trendGp2 && (
+          <InsightCard
+            kicker="Lucro vs ano anterior"
+            variant={trendGp2.valor >= 0 ? "positive" : "negative"}
+            title={`GP2 ${trendGp2.valor >= 0 ? "cresceu" : "caiu"} ${pctFmt.format(Math.abs(trendGp2.valor))}%`}
+            description={`Somando os mesmos meses de ${ano} e ${ano - 1}, com os filtros atuais aplicados.`}
+          />
+        )}
+        {melhorMes && (
+          <InsightCard
+            kicker="Melhor mês do ano"
+            icon={CalendarRange}
+            title={`${MESES[melhorMes.mes - 1]}: ${brlCompact.format(Number(melhorMes.gp2))} de GP2`}
+            description={`${num.format(melhorMes.processos)} processos no mês — maior lucro mensal de ${ano} até agora.`}
+          />
+        )}
+        {gapGp !== null && gapPct !== null && tCurr && (
+          <InsightCard
+            kicker="Proposta × faturado"
+            variant={Math.abs(gapPct) > 20 ? "warning" : "default"}
+            title={`${brlCompact.format(Math.abs(gapGp))} entre GP2 e GP1 (${pctFmt.format(Math.abs(gapPct))}%)`}
+            description="Diferença entre o lucro da proposta (GP2) e o realizado por faturas sem variação cambial (GP1) — detalhe na seção Gross Profit."
+          />
+        )}
+      </div>
+
+      {/* 02 · Evolução */}
+      <SectionHeader
+        kicker="02 · Evolução"
+        title={`GP2 mês a mês em ${ano}`}
+        description="Lucro líquido da proposta (NetProfit) por mês — rótulos mostram o valor exato"
+      />
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Processos por GP2 Mensal {ano}</CardTitle>
-          <CardDescription>GP2 = lucro líquido da proposta (NetProfit)</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {gp2Trend.length > 0 ? (
-            <MonthlyBar data={gp2Trend} />
-          ) : (
-            <div className="text-muted-foreground flex h-[280px] items-center justify-center text-sm">
-              Sem dados para {ano} com os filtros atuais.
-            </div>
-          )}
+        <CardContent className="pt-2">
+          <MonthlyBar data={gp2Trend} name="GP2" />
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      {/* 03 · O que mudou */}
+      <SectionHeader
+        kicker="03 · O que mudou"
+        title={`Comparativo mensal ${ano - 1} × ${ano}`}
+        description="GP2, Revenue e Ticket Médio lado a lado, com variação percentual por mês"
+      />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <YoyTable
           title="GP2"
+          subtitle="Lucro da proposta"
           ano={ano}
           rows={toYoyRows(prev, curr, (r) => Number(r.gp2))}
           totalPrev={tPrev ? Number(tPrev.gp2) : null}
@@ -199,6 +314,7 @@ export default async function FinanceiroPage({
         />
         <YoyTable
           title="Revenue"
+          subtitle="Receita da proposta"
           ano={ano}
           rows={toYoyRows(prev, curr, (r) => Number(r.revenue))}
           totalPrev={tPrev ? Number(tPrev.revenue) : null}
@@ -206,6 +322,7 @@ export default async function FinanceiroPage({
         />
         <YoyTable
           title="Ticket Médio"
+          subtitle="GP2 ÷ processos"
           ano={ano}
           rows={toYoyRows(prev, curr, ticket)}
           totalPrev={ticketTotal(tPrev)}
@@ -213,14 +330,13 @@ export default async function FinanceiroPage({
         />
       </div>
 
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">Gross Profit — GP1 × GP2</h2>
-        <p className="text-muted-foreground text-sm">
-          GP1 = lucro realizado por faturas (sem variação cambial) · barra escura = diferença até o GP2
-        </p>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      {/* 04 · Proposta × faturado */}
+      <SectionHeader
+        kicker="04 · Proposta × faturado"
+        title="Gross Profit — GP1 × GP2"
+        description="GP1 = lucro realizado por faturas (sem variação cambial) · barra escura = diferença até o GP2 da proposta"
+      />
+      <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-6">
         <KpiCard title={`GP1 ${ano}`} value={tCurr ? brlCompact.format(Number(tCurr.gp1)) : "—"} />
         <KpiCard title={`GP2 ${ano}`} value={tCurr ? brlCompact.format(Number(tCurr.gp2)) : "—"} />
         <KpiCard title={`Diferença ${ano}`} value={tCurr ? brlCompact.format(Number(tCurr.gp2) - Number(tCurr.gp1)) : "—"} />
@@ -229,20 +345,14 @@ export default async function FinanceiroPage({
         <KpiCard title={`Diferença ${ano - 1}`} value={tPrev && gp1PrevDisponivel ? brlCompact.format(Number(tPrev.gp2) - Number(tPrev.gp1)) : "—"} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 xl:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Gross Profit {ano}</CardTitle>
-            <CardDescription>GP1 (claro) + diferença GP1 e GP2 (escuro) — rótulo = GP2</CardDescription>
+            <CardDescription>GP1 (claro) + diferença até o GP2 (escuro) — rótulo à direita = GP2</CardDescription>
           </CardHeader>
           <CardContent>
-            {curr.length > 0 ? (
-              <GpStackedBar data={toGpPoints(curr)} />
-            ) : (
-              <div className="text-muted-foreground flex h-[420px] items-center justify-center text-sm">
-                Sem dados para {ano}.
-              </div>
-            )}
+            <GpStackedBar data={toGpPoints(curr)} />
           </CardContent>
         </Card>
         <Card>
@@ -250,7 +360,7 @@ export default async function FinanceiroPage({
             <CardTitle className="text-base">Gross Profit {ano - 1}</CardTitle>
             <CardDescription>
               {gp1PrevDisponivel
-                ? `GP1 (claro) + diferença GP1 e GP2 (escuro) — rótulo = GP2`
+                ? "GP1 (claro) + diferença até o GP2 (escuro) — rótulo à direita = GP2"
                 : `GP1 de ${ano - 1} ainda não sincronizado`}
             </CardDescription>
           </CardHeader>
@@ -258,10 +368,11 @@ export default async function FinanceiroPage({
             {gp1PrevDisponivel ? (
               <GpStackedBar data={toGpPoints(prev)} />
             ) : (
-              <div className="text-muted-foreground flex h-[420px] items-center justify-center px-8 text-center text-sm">
-                O GP1 (lucro por faturas) de {ano - 1} é um campo pesado do Tier2 e ainda não foi
-                sincronizado. O GP2 de {ano - 1} já aparece nas tabelas acima.
-              </div>
+              <EmptyState
+                className="h-[420px]"
+                title={`GP1 de ${ano - 1} pendente`}
+                description={`Campo pesado do Tier2, sincronizado por ano. O GP2 de ${ano - 1} já aparece nas tabelas acima.`}
+              />
             )}
           </CardContent>
         </Card>

@@ -11,11 +11,14 @@ import {
   YAxis,
 } from "recharts";
 
+import { ChartTooltip } from "@/components/charts/chart-tooltip";
+import { EmptyState } from "@/components/dashboard/empty-state";
+
 export type MonthlyBarPoint = { label: string; value: number };
 
 type MonthlyBarProps = {
   data: MonthlyBarPoint[];
-  color?: string;
+  name?: string;
   height?: number;
 };
 
@@ -31,34 +34,38 @@ function compact(v: number): string {
 }
 
 /** Barras mensais com o valor completo no topo (estilo do painel do Power BI). */
-export function MonthlyBar({ data, color = "#2563eb", height = 320 }: MonthlyBarProps) {
+export function MonthlyBar({ data, name = "Valor", height = 320 }: MonthlyBarProps) {
+  if (data.length === 0) {
+    return <EmptyState className="h-[320px]" />;
+  }
   return (
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} margin={{ left: 4, right: 12, top: 24, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
         <XAxis
           dataKey="label"
           tickLine={false}
           axisLine={false}
-          tick={{ fill: "#6b7280", fontSize: 12 }}
+          tickMargin={8}
+          tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
         />
         <YAxis
           tickLine={false}
           axisLine={false}
           width={52}
-          tick={{ fill: "#6b7280", fontSize: 12 }}
+          tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
           tickFormatter={(v) => compact(Number(v))}
         />
         <Tooltip
-          formatter={(v) => full.format(Number(v))}
-          contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }}
+          cursor={{ fill: "var(--muted)", opacity: 0.5 }}
+          content={<ChartTooltip valueFormatter={(v) => full.format(v)} />}
         />
-        <Bar dataKey="value" fill={color} radius={[3, 3, 0, 0]}>
+        <Bar dataKey="value" name={name} fill="var(--chart-1)" radius={[3, 3, 0, 0]}>
           <LabelList
             dataKey="value"
             position="top"
             formatter={(v) => full.format(Number(v))}
-            style={{ fill: "#374151", fontSize: 10 }}
+            style={{ fill: "var(--muted-foreground)", fontSize: 10 }}
           />
         </Bar>
       </BarChart>

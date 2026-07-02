@@ -10,6 +10,9 @@ import {
   YAxis,
 } from "recharts";
 
+import { ChartTooltip } from "@/components/charts/chart-tooltip";
+import { EmptyState } from "@/components/dashboard/empty-state";
+
 export type GpStackedPoint = {
   label: string; // mês
   gp1: number;
@@ -27,6 +30,9 @@ const int = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 });
 /** Barras horizontais empilhadas GP1 + diferença (GP1×GP2), com o GP2 total à direita —
  *  réplica do "Painel de Performance de Gross Profit" do Power BI. */
 export function GpStackedBar({ data, height = 420 }: GpStackedBarProps) {
+  if (data.length === 0) {
+    return <EmptyState className="h-[420px]" />;
+  }
   return (
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} layout="vertical" margin={{ left: 8, right: 64, top: 4, bottom: 0 }}>
@@ -34,7 +40,7 @@ export function GpStackedBar({ data, height = 420 }: GpStackedBarProps) {
           type="number"
           tickLine={false}
           axisLine={false}
-          tick={{ fill: "#6b7280", fontSize: 11 }}
+          tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
           tickFormatter={(v) => `${(Number(v) / 1e6).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} Mi`}
         />
         <YAxis
@@ -43,26 +49,26 @@ export function GpStackedBar({ data, height = 420 }: GpStackedBarProps) {
           width={72}
           tickLine={false}
           axisLine={false}
-          tick={{ fill: "#374151", fontSize: 12 }}
+          tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
         />
         <Tooltip
-          formatter={(v, name) => [int.format(Number(v)), name === "gp1" ? "GP1" : "Diferença GP1 e GP2"]}
-          contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }}
+          cursor={{ fill: "var(--muted)", opacity: 0.5 }}
+          content={<ChartTooltip valueFormatter={(v) => int.format(v)} />}
         />
-        <Bar dataKey="gp1" stackId="gp" fill="#3b82f6" name="gp1">
+        <Bar dataKey="gp1" stackId="gp" fill="var(--chart-1)" name="GP1 (faturas, s/ câmbio)">
           <LabelList
             dataKey="gp1"
             position="center"
             formatter={(v) => (Math.abs(Number(v)) > 0 ? int.format(Number(v)) : "")}
-            style={{ fill: "#ffffff", fontSize: 10 }}
+            style={{ fill: "var(--primary-foreground)", fontSize: 10 }}
           />
         </Bar>
-        <Bar dataKey="diff" stackId="gp" fill="#1e3a8a" name="diff" radius={[0, 3, 3, 0]}>
+        <Bar dataKey="diff" stackId="gp" fill="var(--primary)" name="Diferença até o GP2" radius={[0, 3, 3, 0]}>
           <LabelList
             dataKey="total"
             position="right"
             formatter={(v) => int.format(Number(v))}
-            style={{ fill: "#374151", fontSize: 10 }}
+            style={{ fill: "var(--muted-foreground)", fontSize: 10 }}
           />
         </Bar>
       </BarChart>
