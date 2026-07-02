@@ -18,12 +18,15 @@ with base as (
     coalesce((nullif(data->>'FirstCreatedOn',''))::timestamptz,
              (nullif(data->>'CreatedOn',''))::timestamptz)          as ref_date
   from raw.shipment_process
+  -- filtro "todas as páginas" do Power BI: exclui processos de consolidação (CONS)
+  where (data->>'ProcessID') not ilike '%CONS%'
 )
 select
   process_id,
   ref_date,
-  extract(isoyear from ref_date)::int as ano,
-  extract(week    from ref_date)::int as semana,
+  -- Power BI usa semana começando no DOMINGO; o +1 dia alinha domingo à segunda-ISO.
+  extract(isoyear from ref_date + interval '1 day')::int as ano,
+  extract(week    from ref_date + interval '1 day')::int as semana,
   sales_person,
   process_type,
   customer_name,
