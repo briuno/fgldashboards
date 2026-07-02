@@ -1,7 +1,7 @@
 import {
   LayoutDashboard,
   TrendingUp,
-  Ship,
+  Gauge,
   Wallet,
   ListChecks,
   type LucideIcon,
@@ -28,10 +28,10 @@ export const navItems: NavItem[] = [
     description: "Vendas, lucro por cliente/vendedor",
   },
   {
-    href: "/operacoes",
-    label: "Operações",
-    icon: Ship,
-    description: "Processos por tipo, rota e transportadora",
+    href: "/desempenho",
+    label: "Desempenho",
+    icon: Gauge,
+    description: "Performance de processos, financeiro e agentes",
   },
   {
     href: "/financeiro",

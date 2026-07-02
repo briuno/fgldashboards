@@ -22,7 +22,7 @@ npm run dev                  # http://localhost:3000
 ## Estrutura
 
 ```
-app/(dashboard)/   Telas: Visão Executiva, Comercial, Operações, Financeiro, Processos
+app/(dashboard)/   Telas: Visão Executiva, Comercial, Desempenho, Financeiro, Processos
 app/login, app/auth/   Autenticação (Supabase)
 lib/supabase/      Clients @supabase/ssr (server, client, session)
 components/        UI, gráficos, layout (sidebar/topbar), cards de KPI

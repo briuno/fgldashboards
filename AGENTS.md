@@ -25,7 +25,7 @@ Puxa dados do ERP **Tier2 Cargo** (API REST/Swagger), guarda no **Supabase**
 `app` = profiles/roles.
 
 ## Estrutura
-- `app/(dashboard)/*` — telas protegidas: Visão Executiva (`/`), Comercial, Operações,
+- `app/(dashboard)/*` — telas protegidas: Visão Executiva (`/`), Comercial, Desempenho,
   Financeiro, Processos. `app/login`, `app/auth/*` — autenticação.
 - `proxy.ts` — guarda de sessão (Next 16 renomeou "middleware" → "proxy").
 - `lib/queries/*` — (M1+) acesso tipado às views do `mart`.

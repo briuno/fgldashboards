@@ -11,6 +11,8 @@ import postgres from "https://deno.land/x/postgresjs@v3.4.5/mod.js";
 
 const BASE = (Deno.env.get("TIER2_BASE_URL") ?? "https://t2app-api.tier2systems.com").replace(/\/+$/, "");
 const SELECT = "Oid,ProcessID,ProcessDate,CreatedOn,FirstCreatedOn,ShipmentUpdateOn,CustomerOID,CustomerName,SalesPerson,CustomerService,AgentName,ProcessType,ShipmentExpoImpo,QtyTEU,Status,ForecastGrossProfit,ForecastNetProfit";
+// Lucro realizado (faturas) — computado e PESADO no servidor: usar só no modo ?profit=1 (páginas pequenas).
+const PROFIT_SELECT = SELECT + ",ShipmentProfitInvoiceNetProfit,ShipmentProfitInvoiceGrossProfit";
 const BUDGET_MS = 110_000;
 const START_MONTH = "2020-01";
 const STOP_MONTH = "2027-12";
@@ -38,11 +40,11 @@ function monthFilter(ym: string): string {
   return `ProcessDate ge ${ym}-01T00:00:00-03:00 and ProcessDate lt ${nextMonth(ym)}-01T00:00:00-03:00`;
 }
 
-async function fetchByFilter(token: string, filter: string, skip: number, size: number, orderby: string): Promise<Row[]> {
+async function fetchByFilter(token: string, filter: string, skip: number, size: number, orderby: string, select: string = SELECT): Promise<Row[]> {
   const url =
     `${BASE}/api/odata/ShipmentProcessView` +
     `?$filter=${encodeURIComponent(filter)}&$orderby=${encodeURIComponent(orderby)}` +
-    `&$top=${size}&$skip=${skip}&$select=${encodeURIComponent(SELECT)}`;
+    `&$top=${size}&$skip=${skip}&$select=${encodeURIComponent(select)}`;
   let lastErr = "";
   for (let i = 0; i < 3; i++) {
     try {
@@ -65,30 +67,30 @@ async function upsert(sql: Sql, rows: Row[]): Promise<void> {
 }
 
 // Recupera um sub-range que falhou, dividindo ao meio até isolar a(s) linha(s) que o Tier2 nega.
-async function recoverRange(sql: Sql, token: string, filter: string, orderby: string, skip: number, size: number, started: number): Promise<{ got: number; lost: number }> {
+async function recoverRange(sql: Sql, token: string, filter: string, orderby: string, skip: number, size: number, started: number, select: string = SELECT): Promise<{ got: number; lost: number }> {
   if (Date.now() - started > BUDGET_MS) return { got: 0, lost: 0 };
   try {
-    const rows = await fetchByFilter(token, filter, skip, size, orderby);
+    const rows = await fetchByFilter(token, filter, skip, size, orderby, select);
     if (rows.length) await upsert(sql, rows);
     return { got: rows.length, lost: 0 };
   } catch {
     if (size <= 4) return { got: 0, lost: size }; // bloco irrecuperável (linha que o Tier2 dá 502)
     const half = Math.floor(size / 2);
-    const a = await recoverRange(sql, token, filter, orderby, skip, half, started);
-    const b = await recoverRange(sql, token, filter, orderby, skip + half, size - half, started);
+    const a = await recoverRange(sql, token, filter, orderby, skip, half, started, select);
+    const b = await recoverRange(sql, token, filter, orderby, skip + half, size - half, started, select);
     return { got: a.got + b.got, lost: a.lost + b.lost };
   }
 }
 
 // Percorre um filtro inteiro; janela que falha é recuperada recursivamente (perde só ~4 linhas por registro quebrado).
-async function recoverByFilter(sql: Sql, token: string, filter: string, orderby: string, size: number, started: number, startSkip = 0) {
+async function recoverByFilter(sql: Sql, token: string, filter: string, orderby: string, size: number, started: number, startSkip = 0, select: string = SELECT) {
   let skip = startSkip, got = 0, lost = 0;
   for (;;) {
     if (Date.now() - started > BUDGET_MS) break;
     let rows: Row[] | null = null;
-    try { rows = await fetchByFilter(token, filter, skip, size, orderby); }
+    try { rows = await fetchByFilter(token, filter, skip, size, orderby, select); }
     catch {
-      const r = await recoverRange(sql, token, filter, orderby, skip, size, started);
+      const r = await recoverRange(sql, token, filter, orderby, skip, size, started, select);
       got += r.got; lost += r.lost;
       skip += size;
       continue;
@@ -132,10 +134,12 @@ Deno.serve(async (req) => {
       const startSkip = Number(params.get("skip") ?? 0);
       log.nulldate = await recoverByFilter(sql, token, "ProcessDate eq null", "ProcessID asc", 150, started, startSkip);
     } else if (params.get("months")) {
+      // ?profit=1 inclui o lucro realizado (faturas) — campos pesados, mas ok em páginas de 40
+      const select = params.get("profit") ? PROFIT_SELECT : SELECT;
       const results: Record<string, unknown>[] = [];
       for (const ym of params.get("months")!.split(",").map((s) => s.trim()).filter(Boolean)) {
         if (Date.now() - started > BUDGET_MS) { log.timeBudget = true; break; }
-        results.push({ month: ym, ...(await recoverByFilter(sql, token, monthFilter(ym), "ProcessID asc", 40, started)) });
+        results.push({ month: ym, ...(await recoverByFilter(sql, token, monthFilter(ym), "ProcessID asc", 40, started, 0, select)) });
       }
       log.recovered = results;
     } else {
