@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Hash, Package, Users, TrendingUp } from "lucide-react";
+import { Hash, Package, Users, TrendingUp, XCircle } from "lucide-react";
 
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { AreaTrend, type AreaTrendPoint } from "@/components/charts/area-trend";
@@ -10,7 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { getSemanas, getDetalheSemana, type ProcessoDetalhe } from "@/lib/queries/comercial";
+import { getSemanas, getDetalheSemana, getCancelados, type ProcessoDetalhe } from "@/lib/queries/comercial";
 
 const num = new Intl.NumberFormat("pt-BR");
 const brl = new Intl.NumberFormat("pt-BR", {
@@ -22,10 +22,10 @@ const brl = new Intl.NumberFormat("pt-BR", {
 
 type Agg = { label: string; value: number };
 
-function aggregate(
-  rows: ProcessoDetalhe[],
-  key: (r: ProcessoDetalhe) => string | null,
-  metric: (r: ProcessoDetalhe) => number,
+function aggregate<T>(
+  rows: T[],
+  key: (r: T) => string | null,
+  metric: (r: T) => number,
 ): Agg[] {
   const map = new Map<string, number>();
   for (const r of rows) {
@@ -70,7 +70,7 @@ export default async function ComercialPage({
 }) {
   const sp = await searchParams;
   const ano = Number(sp.ano) || 2026;
-  const semanas = await getSemanas(ano);
+  const [semanas, cancelados] = await Promise.all([getSemanas(ano), getCancelados(ano)]);
 
   const comData = semanas.filter((s) => s.convertidos > 0);
   const semanaSel = Number(sp.semana) || (comData.length ? comData[comData.length - 1].semana : 1);
@@ -148,6 +148,77 @@ export default async function ComercialPage({
       <div className="grid gap-4 lg:grid-cols-2">
         <BarList title="Profit Previsto por Vendedor" items={profitVendedor} currency />
       </div>
+
+      {/* ------ Cancelados (ano) — por "Criado Em" ------ */}
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight">Processos Cancelados</h2>
+          <p className="text-muted-foreground text-sm">Ano {ano} inteiro — semana por data de criação (Criado Em)</p>
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <KpiCard title="Processos cancelados" value={num.format(cancelados.length)} hint={`Ano ${ano}`} icon={XCircle} />
+        <KpiCard
+          title="Clientes"
+          value={num.format(new Set(cancelados.map((c) => c.customer_name)).size)}
+          hint="Com cancelamento no ano"
+          icon={Users}
+        />
+        <KpiCard
+          title="Máx. semana de criação"
+          value={String(Math.max(0, ...cancelados.map((c) => c.semana_criacao)))}
+          hint="Semana mais recente com cancelamento"
+          icon={Hash}
+        />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <BarList title="Cancelados por Vendedor" items={aggregate(cancelados, (r) => r.sales_person, () => 1)} />
+        <BarList title="Cancelados por Tipo" items={aggregate(cancelados, (r) => r.process_type, () => 1)} />
+        <BarList title="Cancelados por Cliente" items={aggregate(cancelados, (r) => r.customer_name, () => 1)} />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Cancelados — detalhe</CardTitle>
+          <CardDescription>Mais recentes primeiro · {num.format(cancelados.length)} no ano</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-muted-foreground border-b text-left">
+                  <th className="py-2 pr-3 font-medium">Processo</th>
+                  <th className="py-2 pr-3 font-medium">Customer Service</th>
+                  <th className="py-2 pr-3 font-medium">Vendedor</th>
+                  <th className="py-2 pr-3 font-medium">Criado Em</th>
+                  <th className="py-2 pr-3 font-medium">Cliente</th>
+                  <th className="py-2 font-medium">Agente</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cancelados.slice(0, 30).map((c) => (
+                  <tr key={c.process_id + c.created_on} className="border-b last:border-0">
+                    <td className="py-1.5 pr-3 font-mono text-xs">{c.process_id}</td>
+                    <td className="py-1.5 pr-3">{c.customer_service || "—"}</td>
+                    <td className="py-1.5 pr-3">{c.sales_person || "—"}</td>
+                    <td className="py-1.5 pr-3 whitespace-nowrap tabular-nums">
+                      {new Date(c.created_on).toLocaleDateString("pt-BR")}
+                    </td>
+                    <td className="max-w-[280px] truncate py-1.5 pr-3" title={c.customer_name ?? ""}>
+                      {c.customer_name || "—"}
+                    </td>
+                    <td className="max-w-[220px] truncate py-1.5" title={c.agent_name ?? ""}>
+                      {c.agent_name || "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -51,3 +51,31 @@ export async function getDetalheSemana(ano: number, semana: number): Promise<Pro
   }
   return (data ?? []) as ProcessoDetalhe[];
 }
+
+export type Cancelado = {
+  process_id: string;
+  semana_criacao: number;
+  created_on: string;
+  sales_person: string | null;
+  customer_service: string | null;
+  agent_name: string | null;
+  process_type: string | null;
+  customer_name: string | null;
+};
+
+/** Cancelados do ano — bucketizados por "Criado Em" (CreatedOn), regra do PBI. */
+export async function getCancelados(ano: number): Promise<Cancelado[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .schema("mart")
+    .from("comercial_detalhe")
+    .select("process_id, semana_criacao, created_on, sales_person, customer_service, agent_name, process_type, customer_name")
+    .eq("ano_criacao", ano)
+    .eq("is_cancelado", true)
+    .order("created_on", { ascending: false });
+  if (error) {
+    console.error("[comercial] cancelados:", error.message);
+    return [];
+  }
+  return (data ?? []) as Cancelado[];
+}

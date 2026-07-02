@@ -10,7 +10,7 @@
 import postgres from "https://deno.land/x/postgresjs@v3.4.5/mod.js";
 
 const BASE = (Deno.env.get("TIER2_BASE_URL") ?? "https://t2app-api.tier2systems.com").replace(/\/+$/, "");
-const SELECT = "Oid,ProcessID,ProcessDate,CreatedOn,FirstCreatedOn,ShipmentUpdateOn,CustomerOID,CustomerName,SalesPerson,ProcessType,ShipmentExpoImpo,QtyTEU,Status,ForecastGrossProfit,ForecastNetProfit";
+const SELECT = "Oid,ProcessID,ProcessDate,CreatedOn,FirstCreatedOn,ShipmentUpdateOn,CustomerOID,CustomerName,SalesPerson,CustomerService,AgentName,ProcessType,ShipmentExpoImpo,QtyTEU,Status,ForecastGrossProfit,ForecastNetProfit";
 const BUDGET_MS = 110_000;
 const START_MONTH = "2020-01";
 const STOP_MONTH = "2027-12";
@@ -81,8 +81,8 @@ async function recoverRange(sql: Sql, token: string, filter: string, orderby: st
 }
 
 // Percorre um filtro inteiro; janela que falha é recuperada recursivamente (perde só ~4 linhas por registro quebrado).
-async function recoverByFilter(sql: Sql, token: string, filter: string, orderby: string, size: number, started: number) {
-  let skip = 0, got = 0, lost = 0;
+async function recoverByFilter(sql: Sql, token: string, filter: string, orderby: string, size: number, started: number, startSkip = 0) {
+  let skip = startSkip, got = 0, lost = 0;
   for (;;) {
     if (Date.now() - started > BUDGET_MS) break;
     let rows: Row[] | null = null;
@@ -98,7 +98,7 @@ async function recoverByFilter(sql: Sql, token: string, filter: string, orderby:
     got += rows.length; skip += rows.length;
     if (rows.length < size) break;
   }
-  return { got, lost };
+  return { got, lost, nextSkip: skip };
 }
 
 async function processMonthFast(sql: Sql, token: string, ym: string): Promise<void> {
@@ -129,7 +129,8 @@ Deno.serve(async (req) => {
     const token = await auth();
 
     if (params.get("nulldate")) {
-      log.nulldate = await recoverByFilter(sql, token, "ProcessDate eq null", "ProcessID asc", 150, started);
+      const startSkip = Number(params.get("skip") ?? 0);
+      log.nulldate = await recoverByFilter(sql, token, "ProcessDate eq null", "ProcessID asc", 150, started, startSkip);
     } else if (params.get("months")) {
       const results: Record<string, unknown>[] = [];
       for (const ym of params.get("months")!.split(",").map((s) => s.trim()).filter(Boolean)) {

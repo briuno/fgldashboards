@@ -10,6 +10,9 @@ with base as (
   select
     data->>'ProcessID'                                  as process_id,
     data->>'SalesPerson'                                as sales_person,
+    data->>'CustomerService'                            as customer_service,
+    data->>'AgentName'                                  as agent_name,
+    (nullif(data->>'CreatedOn',''))::timestamptz        as created_on,
     data->>'ProcessType'                                as process_type,
     data->>'CustomerName'                               as customer_name,
     data->>'Status'                                     as status,
@@ -27,7 +30,13 @@ select
   -- Power BI usa semana começando no DOMINGO; o +1 dia alinha domingo à segunda-ISO.
   extract(isoyear from ref_date + interval '1 day')::int as ano,
   extract(week    from ref_date + interval '1 day')::int as semana,
+  -- Cancelados usam "Criado Em" (CreatedOn), não FirstCreatedOn (regra do PBI, tela de cancelados)
+  extract(isoyear from created_on + interval '1 day')::int as ano_criacao,
+  extract(week    from created_on + interval '1 day')::int as semana_criacao,
   sales_person,
+  customer_service,
+  agent_name,
+  created_on,
   process_type,
   customer_name,
   status,
