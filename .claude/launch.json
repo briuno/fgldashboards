@@ -4,8 +4,16 @@
     {
       "name": "dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "-p", "8084"],
-      "port": 8084
+      "runtimeArgs": ["run", "dev"],
+      "port": 8084,
+      "autoPort": true
+    },
+    {
+      "name": "start-standalone",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [".next/standalone/server.js"],
+      "port": 8090,
+      "autoPort": true
     }
   ]
 }

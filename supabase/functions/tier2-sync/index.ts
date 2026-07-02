@@ -5,6 +5,10 @@
 //   (sem params)      backfill mês a mês até o fim, depois DELTA por ShipmentUpdateOn.
 //   ?months=YYYY-MM,… reprocessa meses com recuperação (subdivide a janela que o Tier2 nega).
 //   ?nulldate=1       carrega as linhas com ProcessDate nulo (que o filtro mensal não pega).
+//   ?proposal=1       sincroniza ShipmentProfitProposalView (GP2/Revenue do Financeiro) →
+//                     raw.shipment_profit_proposal. A view não tem coluna de data; o ano está
+//                     no ProcessID ('IA-26016395'): &year=26 filtra contains(ProcessId,'-26').
+//                     Usa a recuperação por bissecção (linhas 502). Resumível com &skip=N.
 // Chamar via pg_cron: no backfill até backfillComplete; depois roda o delta diário.
 
 import postgres from "https://deno.land/x/postgresjs@v3.4.5/mod.js";
@@ -12,12 +16,16 @@ import postgres from "https://deno.land/x/postgresjs@v3.4.5/mod.js";
 const BASE = (Deno.env.get("TIER2_BASE_URL") ?? "https://t2app-api.tier2systems.com").replace(/\/+$/, "");
 const SELECT = "Oid,ProcessID,ProcessDate,CreatedOn,FirstCreatedOn,ShipmentUpdateOn,CustomerOID,CustomerName,SalesPerson,CustomerService,AgentName,ProcessType,ShipmentExpoImpo,QtyTEU,Status,ForecastGrossProfit,ForecastNetProfit";
 // Lucro realizado (faturas) — computado e PESADO no servidor: usar só no modo ?profit=1 (páginas pequenas).
-const PROFIT_SELECT = SELECT + ",ShipmentProfitInvoiceNetProfit,ShipmentProfitInvoiceGrossProfit";
+// NoExchVariation = GP1 do Financeiro (lucro faturas sem variação cambial).
+const PROFIT_SELECT = SELECT + ",ShipmentProfitInvoiceNetProfit,ShipmentProfitInvoiceGrossProfit,ShipmentProfitInvoiceNetProfitNoExchVariation";
+// GP2 (NetProfit) e Revenue (TotalSalesProposal) vêm da proposta — view 1:1 com o processo.
+const PROPOSAL_SELECT = "Oid,ProcessId,ProcessOID,NetProfit,TotalSalesProposal";
 const BUDGET_MS = 110_000;
 const START_MONTH = "2020-01";
 const STOP_MONTH = "2027-12";
 
 // deno-lint-ignore no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Sql = any;
 type Row = Record<string, unknown>;
 
@@ -40,10 +48,16 @@ function monthFilter(ym: string): string {
   return `ProcessDate ge ${ym}-01T00:00:00-03:00 and ProcessDate lt ${nextMonth(ym)}-01T00:00:00-03:00`;
 }
 
-async function fetchByFilter(token: string, filter: string, skip: number, size: number, orderby: string, select: string = SELECT): Promise<Row[]> {
+// Entidades sincronizáveis → tabela de aterrissagem correspondente.
+const TABLES: Record<string, string> = {
+  ShipmentProcessView: "shipment_process",
+  ShipmentProfitProposalView: "shipment_profit_proposal",
+};
+
+async function fetchByFilter(token: string, filter: string, skip: number, size: number, orderby: string, select: string = SELECT, entity = "ShipmentProcessView"): Promise<Row[]> {
   const url =
-    `${BASE}/api/odata/ShipmentProcessView` +
-    `?$filter=${encodeURIComponent(filter)}&$orderby=${encodeURIComponent(orderby)}` +
+    `${BASE}/api/odata/${entity}` +
+    `?${filter ? `$filter=${encodeURIComponent(filter)}&` : ""}$orderby=${encodeURIComponent(orderby)}` +
     `&$top=${size}&$skip=${skip}&$select=${encodeURIComponent(select)}`;
   let lastErr = "";
   for (let i = 0; i < 3; i++) {
@@ -59,44 +73,44 @@ async function fetchByFilter(token: string, filter: string, skip: number, size: 
   throw new Error(lastErr);
 }
 
-async function upsert(sql: Sql, rows: Row[]): Promise<void> {
+async function upsert(sql: Sql, rows: Row[], table = "shipment_process"): Promise<void> {
   if (rows.length === 0) return;
-  await sql`insert into raw.shipment_process as sp (oid, data)
+  await sql`insert into raw.${sql(table)} as sp (oid, data)
             select (e->>'Oid')::uuid, e from jsonb_array_elements(${sql.json(rows)}::jsonb) e
             on conflict (oid) do update set data = sp.data || excluded.data, synced_at = now()`;
 }
 
 // Recupera um sub-range que falhou, dividindo ao meio até isolar a(s) linha(s) que o Tier2 nega.
-async function recoverRange(sql: Sql, token: string, filter: string, orderby: string, skip: number, size: number, started: number, select: string = SELECT): Promise<{ got: number; lost: number }> {
+async function recoverRange(sql: Sql, token: string, filter: string, orderby: string, skip: number, size: number, started: number, select: string = SELECT, entity = "ShipmentProcessView"): Promise<{ got: number; lost: number }> {
   if (Date.now() - started > BUDGET_MS) return { got: 0, lost: 0 };
   try {
-    const rows = await fetchByFilter(token, filter, skip, size, orderby, select);
-    if (rows.length) await upsert(sql, rows);
+    const rows = await fetchByFilter(token, filter, skip, size, orderby, select, entity);
+    if (rows.length) await upsert(sql, rows, TABLES[entity]);
     return { got: rows.length, lost: 0 };
   } catch {
     if (size <= 4) return { got: 0, lost: size }; // bloco irrecuperável (linha que o Tier2 dá 502)
     const half = Math.floor(size / 2);
-    const a = await recoverRange(sql, token, filter, orderby, skip, half, started, select);
-    const b = await recoverRange(sql, token, filter, orderby, skip + half, size - half, started, select);
+    const a = await recoverRange(sql, token, filter, orderby, skip, half, started, select, entity);
+    const b = await recoverRange(sql, token, filter, orderby, skip + half, size - half, started, select, entity);
     return { got: a.got + b.got, lost: a.lost + b.lost };
   }
 }
 
 // Percorre um filtro inteiro; janela que falha é recuperada recursivamente (perde só ~4 linhas por registro quebrado).
-async function recoverByFilter(sql: Sql, token: string, filter: string, orderby: string, size: number, started: number, startSkip = 0, select: string = SELECT) {
+async function recoverByFilter(sql: Sql, token: string, filter: string, orderby: string, size: number, started: number, startSkip = 0, select: string = SELECT, entity = "ShipmentProcessView") {
   let skip = startSkip, got = 0, lost = 0;
   for (;;) {
     if (Date.now() - started > BUDGET_MS) break;
     let rows: Row[] | null = null;
-    try { rows = await fetchByFilter(token, filter, skip, size, orderby, select); }
+    try { rows = await fetchByFilter(token, filter, skip, size, orderby, select, entity); }
     catch {
-      const r = await recoverRange(sql, token, filter, orderby, skip, size, started, select);
+      const r = await recoverRange(sql, token, filter, orderby, skip, size, started, select, entity);
       got += r.got; lost += r.lost;
       skip += size;
       continue;
     }
     if (rows.length === 0) break;
-    await upsert(sql, rows);
+    await upsert(sql, rows, TABLES[entity]);
     got += rows.length; skip += rows.length;
     if (rows.length < size) break;
   }
@@ -130,7 +144,15 @@ Deno.serve(async (req) => {
   try {
     const token = await auth();
 
-    if (params.get("nulldate")) {
+    if (params.get("proposal")) {
+      // ?proposal=1&year=26 → só processos '-26' (ProcessID embute o ano). Sem year = view inteira.
+      const startSkip = Number(params.get("skip") ?? 0);
+      const size = Number(params.get("size") ?? 40);
+      const year = params.get("year");
+      const filter = year ? `contains(ProcessId,'-${year}')` : "";
+      log.proposal = await recoverByFilter(sql, token, filter, "ProcessId asc", size, started, startSkip, PROPOSAL_SELECT, "ShipmentProfitProposalView");
+      log.proposalCount = (await sql`select count(*)::int n from raw.shipment_profit_proposal`)[0].n;
+    } else if (params.get("nulldate")) {
       const startSkip = Number(params.get("skip") ?? 0);
       log.nulldate = await recoverByFilter(sql, token, "ProcessDate eq null", "ProcessID asc", 150, started, startSkip);
     } else if (params.get("months")) {
