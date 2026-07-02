@@ -1,14 +1,14 @@
 import { Badge } from "@/components/ui/badge";
 
 /**
- * Placeholder for the "última atualização" badge.
- * Será ligado à tabela etl.sync_log no M1 (após a primeira sincronização real).
+ * Status da sincronização com o Tier2.
+ * A ingestão roda diariamente via Edge Function `tier2-sync` + pg_cron.
  */
 export function LastSyncBadge() {
   return (
-    <Badge variant="warning" className="gap-1.5">
+    <Badge variant="success" className="gap-1.5 font-normal">
       <span className="inline-block size-1.5 rounded-full bg-current" />
-      Aguardando 1ª sincronização
+      Sincronização diária ativa
     </Badge>
   );
 }

@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/dashboard/empty-state";
 
 export type Agg = { label: string; value: number };
 
@@ -42,20 +43,33 @@ export function BarList({
         <CardTitle className="text-base">{title}</CardTitle>
       </CardHeader>
       <CardContent>
-        <ul className="flex flex-col gap-2.5">
-          {items.slice(0, maxItems).map((i) => (
-            <li key={i.label} className="flex flex-col gap-1">
-              <div className="flex items-center justify-between gap-2 text-sm">
-                <span className="truncate" title={i.label}>{i.label}</span>
-                <span className="text-muted-foreground shrink-0 tabular-nums">{fmt.format(i.value)}</span>
-              </div>
-              <div className="bg-muted h-1.5 w-full overflow-hidden rounded-full">
-                <div className="bg-primary h-full rounded-full" style={{ width: `${(i.value / max) * 100}%` }} />
-              </div>
-            </li>
-          ))}
-          {items.length === 0 && <li className="text-muted-foreground text-sm">Sem dados.</li>}
-        </ul>
+        {items.length === 0 ? (
+          <EmptyState className="h-[160px]" />
+        ) : (
+          <ul className="flex flex-col gap-2.5">
+            {items.slice(0, maxItems).map((i, idx) => (
+              <li key={i.label} className="group flex items-center gap-3">
+                <span className="text-muted-foreground/70 w-4 shrink-0 text-right text-xs tabular-nums">
+                  {idx + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2 text-sm">
+                    <span className="truncate" title={i.label}>{i.label}</span>
+                    <span className="text-muted-foreground group-hover:text-foreground shrink-0 text-[13px] tabular-nums transition-colors">
+                      {fmt.format(i.value)}
+                    </span>
+                  </div>
+                  <div className="bg-muted mt-1 h-1.5 w-full overflow-hidden rounded-full">
+                    <div
+                      className="bg-chart-1 h-full rounded-full"
+                      style={{ width: `${Math.max(2, (i.value / max) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </CardContent>
     </Card>
   );

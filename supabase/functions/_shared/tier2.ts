@@ -122,7 +122,7 @@ export async function discoverSpec(
       if (res.ok && (res.headers.get("content-type") ?? "").includes("json")) {
         return { url: `${baseUrl}${p}`, spec: (await res.json()) as Record<string, unknown> };
       }
-    } catch (_e) {
+    } catch {
       // tenta o próximo caminho
     }
   }

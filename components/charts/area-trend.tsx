@@ -10,58 +10,64 @@ import {
   YAxis,
 } from "recharts";
 
+import { ChartTooltip } from "@/components/charts/chart-tooltip";
+import { EmptyState } from "@/components/dashboard/empty-state";
+
 export type AreaTrendPoint = { label: string; value: number };
 
 type AreaTrendProps = {
   data: AreaTrendPoint[];
-  color?: string;
+  name?: string;
   height?: number;
   valueFormatter?: (v: number) => string;
 };
 
 export function AreaTrend({
   data,
-  color = "#2563eb",
+  name = "Valor",
   height = 280,
   valueFormatter = (v) => v.toLocaleString("pt-BR"),
 }: AreaTrendProps) {
+  if (data.length === 0) {
+    return <EmptyState className="h-[280px]" />;
+  }
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={data} margin={{ left: 4, right: 12, top: 8, bottom: 0 }}>
         <defs>
           <linearGradient id="area-trend-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor={color} stopOpacity={0.3} />
-            <stop offset="95%" stopColor={color} stopOpacity={0} />
+            <stop offset="5%" stopColor="var(--chart-1)" stopOpacity={0.25} />
+            <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={0} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
         <XAxis
           dataKey="label"
           tickLine={false}
           axisLine={false}
-          tick={{ fill: "#6b7280", fontSize: 12 }}
+          tickMargin={8}
+          minTickGap={16}
+          tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
         />
         <YAxis
           tickLine={false}
           axisLine={false}
-          width={56}
-          tick={{ fill: "#6b7280", fontSize: 12 }}
+          width={52}
+          tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
           tickFormatter={(v) => valueFormatter(Number(v))}
         />
         <Tooltip
-          formatter={(v) => valueFormatter(Number(v))}
-          contentStyle={{
-            borderRadius: 8,
-            border: "1px solid #e5e7eb",
-            fontSize: 12,
-          }}
+          cursor={{ stroke: "var(--border)" }}
+          content={<ChartTooltip valueFormatter={valueFormatter} />}
         />
         <Area
           type="monotone"
           dataKey="value"
-          stroke={color}
+          name={name}
+          stroke="var(--chart-1)"
           fill="url(#area-trend-fill)"
           strokeWidth={2}
+          activeDot={{ r: 4, strokeWidth: 0 }}
         />
       </AreaChart>
     </ResponsiveContainer>

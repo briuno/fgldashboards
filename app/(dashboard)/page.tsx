@@ -1,5 +1,6 @@
 import { Package, Clock, TrendingUp, Ship, Info } from "lucide-react";
 
+import { PageHeader } from "@/components/dashboard/page-header";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { AreaTrend, type AreaTrendPoint } from "@/components/charts/area-trend";
 import {
@@ -10,6 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/dashboard/empty-state";
 import { getTotals, getMonthlyKpis, getTopClients } from "@/lib/queries/kpi";
 
 const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
@@ -39,27 +41,19 @@ export default async function VisaoExecutivaPage() {
   const maxLucro = Math.max(1, ...topClients.map((c) => Number(c.lucro_liquido)));
 
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Visão Executiva</h1>
-          <p className="text-muted-foreground text-sm">
-            Panorama geral — dados do Tier2 · {num.format(Number(totals.processos_total))} processos
-            {" "}({num.format(Number(totals.processos_novos))} novos sem ETA)
-          </p>
-        </div>
-      </div>
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+      <PageHeader
+        title="Visão Executiva"
+        description={
+          <>
+            Panorama geral — dados do Tier2 ·{" "}
+            <span className="tabular-nums">{num.format(Number(totals.processos_total))}</span>{" "}
+            processos (2021–2026)
+          </>
+        }
+      />
 
-      <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
-        <Info className="mt-0.5 size-4 shrink-0" />
-        <p>
-          <span className="font-medium">Dados reais do Tier2</span>, com sincronização diária
-          ativa (Edge Function + pg_cron). Receita/custo e o lucro de alguns meses entram ao
-          ligarmos a view de faturamento (ShipmentProfitInvoiceView).
-        </p>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           title="Processos"
           value={num.format(Number(totals.processos_total))}
@@ -89,14 +83,14 @@ export default async function VisaoExecutivaPage() {
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <CardTitle className="text-base">Processos por mês</CardTitle>
               <Badge variant="secondary">últimos 14 meses</Badge>
             </div>
-            <CardDescription>Embarques com ETA por mês (ProcessDate) — Tier2</CardDescription>
+            <CardDescription>Volume de embarques por ProcessDate — Tier2</CardDescription>
           </CardHeader>
           <CardContent>
-            <AreaTrend data={trend} />
+            <AreaTrend data={trend} name="Processos" />
           </CardContent>
         </Card>
 
@@ -106,32 +100,39 @@ export default async function VisaoExecutivaPage() {
             <CardDescription>Lucro líquido acumulado</CardDescription>
           </CardHeader>
           <CardContent>
-            <ul className="flex flex-col gap-3">
-              {topClients.map((c) => (
-                <li key={c.customer_name} className="flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between gap-2 text-sm">
-                    <span className="truncate" title={c.customer_name}>
-                      {c.customer_name}
-                    </span>
-                    <span className="text-muted-foreground shrink-0 tabular-nums">
-                      {brl.format(Number(c.lucro_liquido))}
-                    </span>
-                  </div>
-                  <div className="bg-muted h-1.5 w-full overflow-hidden rounded-full">
-                    <div
-                      className="bg-primary h-full rounded-full"
-                      style={{ width: `${(Number(c.lucro_liquido) / maxLucro) * 100}%` }}
-                    />
-                  </div>
-                </li>
-              ))}
-              {topClients.length === 0 && (
-                <li className="text-muted-foreground text-sm">Sem dados ainda.</li>
-              )}
-            </ul>
+            {topClients.length === 0 ? (
+              <EmptyState className="h-[240px]" />
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {topClients.map((c) => (
+                  <li key={c.customer_name} className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-2 text-sm">
+                      <span className="truncate" title={c.customer_name}>
+                        {c.customer_name}
+                      </span>
+                      <span className="text-muted-foreground shrink-0 text-[13px] tabular-nums">
+                        {brl.format(Number(c.lucro_liquido))}
+                      </span>
+                    </div>
+                    <div className="bg-muted h-1.5 w-full overflow-hidden rounded-full">
+                      <div
+                        className="bg-chart-1 h-full rounded-full"
+                        style={{ width: `${(Number(c.lucro_liquido) / maxLucro) * 100}%` }}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </CardContent>
         </Card>
       </div>
+
+      <p className="text-muted-foreground flex items-start gap-2 text-xs">
+        <Info className="mt-0.5 size-3.5 shrink-0" />
+        Dados reais do Tier2, com sincronização diária ativa (Edge Function + pg_cron). Receita/custo
+        e o lucro de alguns meses entram ao ligarmos a view de faturamento.
+      </p>
     </div>
   );
 }

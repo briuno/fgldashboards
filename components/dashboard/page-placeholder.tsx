@@ -1,5 +1,6 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/dashboard/page-header";
 
 type PagePlaceholderProps = {
   title: string;
@@ -13,12 +14,10 @@ export function PagePlaceholder({
   points,
 }: PagePlaceholderProps) {
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-3">
-        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+      <PageHeader title={title} description={description}>
         <Badge variant="secondary">Em construção</Badge>
-      </div>
-      <p className="text-muted-foreground max-w-2xl text-sm">{description}</p>
+      </PageHeader>
       <Card>
         <CardContent>
           <p className="mb-3 text-sm font-medium">
