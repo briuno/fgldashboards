@@ -1,4 +1,4 @@
-import { CircleDollarSign, Package, Receipt, Users } from "lucide-react";
+import { CircleDollarSign, Package, Receipt, TrendingUp, Users } from "lucide-react";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { KpiCard } from "@/components/dashboard/kpi-card";
@@ -24,15 +24,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { MESES, MESES_CURTO, fmtMi, int, nomeCurto, num, variacao } from "@/lib/format";
-import { getModalidade, getTopClientesAno, getDesempenhoTotais } from "@/lib/queries/desempenho";
-import { getFinanceiroMensal, getFinanceiroTotais, type FinanceiroMensal } from "@/lib/queries/financeiro";
+import { MESES, MESES_CURTO, fmtMi, int, num, variacao } from "@/lib/format";
+import { getComercialMensal, getComercialTotais, type ComercialMensal } from "@/lib/queries/comercial";
+import { getModalidade, getTopClientesAno } from "@/lib/queries/desempenho";
 
 type Stat = { label: string; prev: number | null; curr: number | null };
 
 /** Estatísticas Total / Média / Maior / Menor de uma métrica mensal. */
-function stats(prev: FinanceiroMensal[], curr: FinanceiroMensal[], metric: (r: FinanceiroMensal) => number) {
-  const vals = (rows: FinanceiroMensal[]) => rows.map(metric).filter((v) => v > 0);
+function stats(prev: ComercialMensal[], curr: ComercialMensal[], metric: (r: ComercialMensal) => number) {
+  const vals = (rows: ComercialMensal[]) => rows.map(metric).filter((v) => v > 0);
   const p = vals(prev);
   const c = vals(curr);
   const agg = (arr: number[], f: (a: number, b: number) => number, init: number) =>
@@ -79,28 +79,29 @@ export default async function ComercialPage({
   const sp = await searchParams;
   const ano = Number(sp.ano) || 2026;
 
-  const [finMensal, finTotais, topClientes, modalidade, totais] = await Promise.all([
-    getFinanceiroMensal(ano),
-    getFinanceiroTotais(ano),
+  const [mensal, totais, topClientes, modalidade] = await Promise.all([
+    getComercialMensal(ano),
+    getComercialTotais(ano),
     getTopClientesAno(ano, 10),
     getModalidade(ano),
-    getDesempenhoTotais(ano),
   ]);
 
-  const curr = finMensal.filter((m) => m.ano === ano).sort((a, b) => a.mes - b.mes);
-  const prev = finMensal.filter((m) => m.ano === ano - 1).sort((a, b) => a.mes - b.mes);
-  const tCurr = finTotais.find((t) => t.ano === ano);
-  const tPrev = finTotais.find((t) => t.ano === ano - 1);
+  const curr = mensal.filter((m) => m.ano === ano).sort((a, b) => a.mes - b.mes);
+  const prev = mensal.filter((m) => m.ano === ano - 1).sort((a, b) => a.mes - b.mes);
+  const tCurr = totais.find((t) => t.ano === ano);
+  const tPrev = totais.find((t) => t.ano === ano - 1);
 
-  // Comparações "mesmo período"
+  // Comparações "mesmo período" (meses presentes no ano corrente)
   const mesesCur = new Set(curr.map((r) => r.mes));
-  const sum = (rows: FinanceiroMensal[], metric: (r: FinanceiroMensal) => number, onlySame = false) =>
+  const sum = (rows: ComercialMensal[], metric: (r: ComercialMensal) => number, onlySame = false) =>
     rows.filter((r) => !onlySame || mesesCur.has(r.mes)).reduce((a, r) => a + metric(r), 0);
 
   const revCur = sum(curr, (r) => Number(r.revenue));
   const revPrevSame = sum(prev, (r) => Number(r.revenue), true);
   const procCur = sum(curr, (r) => r.processos);
   const procPrevSame = sum(prev, (r) => r.processos, true);
+  const profitCur = sum(curr, (r) => Number(r.profit_previsto));
+  const profitPrevSame = sum(prev, (r) => Number(r.profit_previsto), true);
   const ticketCur = procCur > 0 ? revCur / procCur : null;
   const ticketPrev = procPrevSame > 0 ? revPrevSame / procPrevSame : null;
 
@@ -115,27 +116,27 @@ export default async function ComercialPage({
     curr: revCurMap.get(i + 1) ?? null,
   })).filter((r) => r.prev !== null || r.curr !== null);
 
-  // GP2 mensal — barras
-  const gp2Barras: MonthlyBarPoint[] = curr.map((r) => ({
+  // Profit Previsto mensal — barras
+  const profitBarras: MonthlyBarPoint[] = curr.map((r) => ({
     label: MESES_CURTO[r.mes - 1],
-    value: Number(r.gp2),
+    value: Number(r.profit_previsto),
   }));
 
-  // GP2 por mês — tabela yoy
-  const gp2PrevMap = new Map(prev.map((r) => [r.mes, Number(r.gp2)]));
-  const gp2CurMap = new Map(curr.map((r) => [r.mes, Number(r.gp2)]));
-  const gp2Rows: YoyRow[] = MESES.map((nome, i) => ({
+  // Profit Previsto por mês — tabela yoy
+  const profPrevMap = new Map(prev.map((r) => [r.mes, Number(r.profit_previsto)]));
+  const profCurMap = new Map(curr.map((r) => [r.mes, Number(r.profit_previsto)]));
+  const profitRows: YoyRow[] = MESES.map((nome, i) => ({
     label: nome,
-    prev: gp2PrevMap.get(i + 1) ?? null,
-    curr: gp2CurMap.get(i + 1) ?? null,
+    prev: profPrevMap.get(i + 1) ?? null,
+    curr: profCurMap.get(i + 1) ?? null,
   })).filter((r) => r.prev !== null || r.curr !== null);
 
   // Concentração da carteira: top 5 clientes vs demais (processos)
-  const totalProc = Number(totais?.processos ?? 0);
+  const totalProc = tCurr ? Number(tCurr.processos) : 0;
   const top5 = topClientes.slice(0, 5);
   const top5Proc = top5.reduce((a, c) => a + Number(c.processos), 0);
   const concentracao = [
-    ...top5.map((c) => ({ name: nomeCurto(c.customer_name), value: Number(c.processos) })),
+    ...top5.map((c) => ({ name: c.customer_name, value: Number(c.processos) })),
     ...(totalProc > top5Proc ? [{ name: "Demais Clientes", value: totalProc - top5Proc }] : []),
   ];
   const shareTop5 = totalProc > 0 ? (top5Proc / totalProc) * 100 : 0;
@@ -195,7 +196,7 @@ export default async function ComercialPage({
         />
       </div>
 
-      {/* Receita mensal + GP2 mensal */}
+      {/* Receita mensal + Profit Previsto mensal */}
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
@@ -213,13 +214,24 @@ export default async function ComercialPage({
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">GP2 Mensal {ano}</CardTitle>
-            <CardDescription>Lucro da proposta (R$) por mês</CardDescription>
+            <CardTitle className="text-base">Profit Previsto Mensal {ano}</CardTitle>
+            <CardDescription>Lucro líquido previsto (ForecastNetProfit) por mês</CardDescription>
           </CardHeader>
           <CardContent>
-            <MonthlyBar data={gp2Barras} name="GP2" />
+            <MonthlyBar data={profitBarras} name="Profit Previsto" />
           </CardContent>
         </Card>
+      </div>
+
+      {/* Painel do profit previsto */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <KpiCard
+          title={`Profit Previsto ${ano} (R$)`}
+          value={fmtMi(profitCur)}
+          icon={TrendingUp}
+          accent="red"
+          delta={{ value: variacao(profitPrevSame, profitCur), suffix: vsAnt }}
+        />
       </div>
 
       {/* Top clientes + estatísticas + concentração */}
@@ -251,7 +263,7 @@ export default async function ComercialPage({
                         </span>
                       </TableCell>
                       <TableCell className="max-w-[260px] truncate py-1.5" title={c.customer_name}>
-                        {nomeCurto(c.customer_name)}
+                        {c.customer_name}
                       </TableCell>
                       <TableCell className="py-1.5 text-right tabular-nums">{num.format(Number(c.processos))}</TableCell>
                       <TableCell className="text-muted-foreground py-1.5 text-right tabular-nums">
@@ -320,7 +332,7 @@ export default async function ComercialPage({
         </Card>
       </div>
 
-      {/* Mix por modalidade + GP2 por mês */}
+      {/* Mix por modalidade + Profit Previsto por mês */}
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
@@ -338,24 +350,25 @@ export default async function ComercialPage({
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">GP2 (R$) por Mês — {ano - 1} vs {ano}</CardTitle>
+            <CardTitle className="text-base">Profit Previsto (R$) por Mês — {ano - 1} vs {ano}</CardTitle>
           </CardHeader>
           <CardContent>
             <YoyTable
               ano={ano}
-              rows={gp2Rows}
+              rows={profitRows}
               fmt={(v) => int.format(v)}
-              totalPrev={tPrev ? Number(tPrev.gp2) : null}
-              totalCurr={tCurr ? Number(tCurr.gp2) : null}
+              totalPrev={tPrev ? Number(tPrev.profit_previsto) : null}
+              totalCurr={tCurr ? Number(tCurr.profit_previsto) : null}
             />
           </CardContent>
         </Card>
       </div>
 
       <p className="text-muted-foreground text-xs">
-        Fonte: Tier2 · Receita = TotalSalesProposal · GP2 = NetProfit da proposta · Ticket Médio =
-        Receita ÷ processos · Variações comparam os mesmos meses de {ano} e {ano - 1} · Exclui
-        cancelados e consolidações (CONS).
+        Fonte: Tier2 · Profit Previsto = ForecastNetProfit (lucro líquido previsto do processo) ·
+        Receita = TotalSalesProposal · Ticket Médio = Receita ÷ processos · Variações comparam os
+        mesmos meses de {ano} e {ano - 1} · Data-base: data do processo; exclui cancelados e
+        consolidações (CONS).
       </p>
     </div>
   );
