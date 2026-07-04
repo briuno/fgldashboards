@@ -32,7 +32,7 @@ export function Segmented({
           className={cn(
             "inline-flex h-7 min-w-8 shrink-0 items-center justify-center rounded-md px-2.5 text-sm tabular-nums transition-colors",
             item.active
-              ? "bg-background text-foreground shadow-sm"
+              ? "bg-primary text-primary-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground"
           )}
         >

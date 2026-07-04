@@ -1,13 +1,24 @@
-import { Package, Users, DollarSign, TrendingUp, SlidersHorizontal, CalendarRange } from "lucide-react";
+import {
+  ArrowLeftRight,
+  BarChart3,
+  CircleDollarSign,
+  Percent,
+  PiggyBank,
+  SlidersHorizontal,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
 
-import { PageHeader, SectionHeader } from "@/components/dashboard/page-header";
+import { PageHeader } from "@/components/dashboard/page-header";
 import { KpiCard } from "@/components/dashboard/kpi-card";
-import { InsightCard } from "@/components/dashboard/insight-card";
+import { Delta } from "@/components/dashboard/delta";
 import { FilterSelect } from "@/components/dashboard/filter-select";
 import { Segmented } from "@/components/dashboard/segmented";
 import { EmptyState } from "@/components/dashboard/empty-state";
-import { MonthlyBar, type MonthlyBarPoint } from "@/components/charts/monthly-bar";
-import { GpStackedBar, type GpStackedPoint } from "@/components/charts/gp-stacked-bar";
+import { ComboGp, type ComboGpPoint } from "@/components/charts/combo-gp";
+import { GroupedCompare } from "@/components/charts/grouped-compare";
+import { CompareLine, type ComparePoint } from "@/components/charts/compare-line";
+import { Donut } from "@/components/charts/donut";
 import {
   Card,
   CardContent,
@@ -24,6 +35,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MESES, MESES_CURTO, fmtMi, int, nomeCurto, num, variacao } from "@/lib/format";
 import {
   getClientesFinanceiro,
   getFinanceiroMensal,
@@ -32,133 +44,50 @@ import {
   type FinanceiroMensal,
 } from "@/lib/queries/financeiro";
 
-const MESES = [
-  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-];
-
-const num = new Intl.NumberFormat("pt-BR");
-const dec = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const pctFmt = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
-const brlCompact = new Intl.NumberFormat("pt-BR", {
-  style: "currency", currency: "BRL", notation: "compact", maximumFractionDigits: 1,
-});
-
-function Variacao({ prev, curr }: { prev: number | null; curr: number | null }) {
-  if (!prev || curr === null) return <span className="text-muted-foreground">—</span>;
-  const v = curr / prev - 1;
-  const positive = v >= 0;
-  return (
-    <span
-      className={`inline-flex items-center justify-end gap-1 tabular-nums ${
-        positive ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-      }`}
-    >
-      {(v * 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
-    </span>
-  );
-}
-
-type YoyRow = { mes: number; prev: number | null; curr: number | null };
-
-function YoyTable({
-  title, subtitle, ano, rows, totalPrev, totalCurr,
-}: {
-  title: string;
-  subtitle?: string;
-  ano: number;
-  rows: YoyRow[];
-  totalPrev: number | null;
-  totalCurr: number | null;
-}) {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">{title}</CardTitle>
-        {subtitle && <CardDescription>{subtitle}</CardDescription>}
-      </CardHeader>
-      <CardContent>
-        {rows.length === 0 ? (
-          <EmptyState className="h-[160px]" description="Sem dados para os filtros atuais." />
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead>Mês</TableHead>
-                <TableHead className="text-right">{ano - 1}</TableHead>
-                <TableHead className="text-right">{ano}</TableHead>
-                <TableHead className="text-right">Variação %</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r) => (
-                <TableRow key={r.mes}>
-                  <TableCell className="py-1.5">{MESES[r.mes - 1]}</TableCell>
-                  <TableCell className="py-1.5 text-right tabular-nums">
-                    {r.prev !== null ? dec.format(r.prev) : "—"}
-                  </TableCell>
-                  <TableCell className="py-1.5 text-right tabular-nums">
-                    {r.curr !== null ? dec.format(r.curr) : "—"}
-                  </TableCell>
-                  <TableCell className="py-1.5 text-right">
-                    <Variacao prev={r.prev} curr={r.curr} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-            <TableFooter>
-              <TableRow className="hover:bg-transparent">
-                <TableCell>Total</TableCell>
-                <TableCell className="text-right tabular-nums">{totalPrev !== null ? dec.format(totalPrev) : "—"}</TableCell>
-                <TableCell className="text-right tabular-nums">{totalCurr !== null ? dec.format(totalCurr) : "—"}</TableCell>
-                <TableCell className="text-right"><Variacao prev={totalPrev} curr={totalCurr} /></TableCell>
-              </TableRow>
-            </TableFooter>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function toYoyRows(
-  prev: FinanceiroMensal[],
-  curr: FinanceiroMensal[],
-  metric: (r: FinanceiroMensal) => number,
-): YoyRow[] {
-  const p = new Map(prev.map((r) => [r.mes, metric(r)]));
-  const c = new Map(curr.map((r) => [r.mes, metric(r)]));
-  return Array.from({ length: 12 }, (_, i) => i + 1)
-    .filter((mes) => p.has(mes) || c.has(mes))
-    .map((mes) => ({ mes, prev: p.get(mes) ?? null, curr: c.get(mes) ?? null }));
-}
-
-function toGpPoints(rows: FinanceiroMensal[]): GpStackedPoint[] {
-  return rows.map((r) => ({
-    label: MESES[r.mes - 1],
-    gp1: Number(r.gp1),
-    diff: Number(r.gp2) - Number(r.gp1),
-    total: Number(r.gp2),
-  }));
-}
-
-/** Variação "mesmo período": soma só os meses que têm dados no ano corrente. */
+/** Soma "mesmo período": só os meses que existem no ano corrente. */
 function samePeriod(
   prev: FinanceiroMensal[],
   curr: FinanceiroMensal[],
   metric: (r: FinanceiroMensal) => number,
-) {
-  if (curr.length === 0) return undefined;
+): { prev: number; curr: number; var: number | null } {
   const meses = new Set(curr.map((r) => r.mes));
   const somaCur = curr.reduce((a, r) => a + metric(r), 0);
   const somaPrev = prev.filter((r) => meses.has(r.mes)).reduce((a, r) => a + metric(r), 0);
-  if (somaPrev === 0) return undefined;
-  const v = (somaCur / somaPrev - 1) * 100;
-  return {
-    label: `${v >= 0 ? "+" : ""}${pctFmt.format(v)}% vs mesmo período`,
-    direction: (v > 0 ? "up" : v < 0 ? "down" : "neutral") as "up" | "down" | "neutral",
-    valor: v,
-  };
+  return { prev: somaPrev, curr: somaCur, var: variacao(somaPrev, somaCur) };
+}
+
+/** Mini-card de destaque (grid "Destaques Financeiros" do mockup). */
+function Destaque({
+  icon: Icon,
+  iconClass,
+  label,
+  value,
+  delta,
+  unit,
+  suffix,
+}: {
+  icon: React.ElementType;
+  iconClass: string;
+  label: string;
+  value: string;
+  delta: number | null;
+  unit?: "%" | "p.p.";
+  suffix?: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border p-3.5">
+      <div className={`flex size-10 shrink-0 items-center justify-center rounded-full ${iconClass}`}>
+        <Icon className="size-4.5" strokeWidth={2} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-muted-foreground truncate text-[10.5px] font-semibold tracking-wide uppercase">
+          {label}
+        </p>
+        <p className="text-lg leading-tight font-bold tabular-nums">{value}</p>
+        <Delta value={delta} unit={unit} suffix={suffix} className="text-[11px]" />
+      </div>
+    </div>
+  );
 }
 
 export default async function FinanceiroPage({
@@ -183,24 +112,51 @@ export default async function FinanceiroPage({
   const tCurr = totais.find((t) => t.ano === ano);
   const tPrev = totais.find((t) => t.ano === ano - 1);
 
-  const gp2Trend: MonthlyBarPoint[] = curr.map((r) => ({ label: MESES[r.mes - 1], value: Number(r.gp2) }));
+  // GP1 do ano anterior pode ainda não ter sido sincronizado (campo pesado, por ano)
+  const gp1PrevOk = prev.some((r) => Number(r.gp1) !== 0);
 
-  const ticket = (r: FinanceiroMensal) => (r.processos > 0 ? Number(r.gp2) / r.processos : 0);
-  const ticketTotal = (t?: { gp2: number; processos: number }) =>
-    t && t.processos > 0 ? Number(t.gp2) / t.processos : null;
+  // Comparações "mesmo período" (meses fechados do ano corrente vs os mesmos do anterior)
+  const spRevenue = samePeriod(prev, curr, (r) => Number(r.revenue));
+  const spGp1 = gp1PrevOk ? samePeriod(prev, curr, (r) => Number(r.gp1)) : null;
+  const spGp2 = samePeriod(prev, curr, (r) => Number(r.gp2));
 
-  // GP1 do ano anterior pode ainda não ter sido sincronizado (campo pesado, puxado por ano).
-  const gp1PrevDisponivel = prev.some((r) => Number(r.gp1) !== 0);
+  const margem = (gp2: number, rev: number) => (rev > 0 ? (gp2 / rev) * 100 : null);
+  const margemCur = margem(spGp2.curr, spRevenue.curr);
+  const margemPrev = margem(spGp2.prev, spRevenue.prev);
+  const margemPp = margemCur !== null && margemPrev !== null ? margemCur - margemPrev : null;
 
-  // Leituras derivadas dos dados carregados
-  const trendGp2 = samePeriod(prev, curr, (r) => Number(r.gp2));
-  const trendRevenue = samePeriod(prev, curr, (r) => Number(r.revenue));
-  const trendProc = samePeriod(prev, curr, (r) => Number(r.processos));
-  const melhorMes = curr.length
-    ? curr.reduce((a, b) => (Number(b.gp2) > Number(a.gp2) ? b : a))
-    : undefined;
-  const gapGp = tCurr ? Number(tCurr.gp2) - Number(tCurr.gp1) : null;
-  const gapPct = tCurr && Number(tCurr.gp2) !== 0 && gapGp !== null ? (gapGp / Number(tCurr.gp2)) * 100 : null;
+  const diffGp = tCurr ? Number(tCurr.gp2) - Number(tCurr.gp1) : null;
+  const diffGpVar = spGp1 ? variacao(spGp2.prev - spGp1.prev, spGp2.curr - spGp1.curr) : null;
+
+  const comboData: ComboGpPoint[] = curr.map((r) => ({
+    label: MESES_CURTO[r.mes - 1],
+    gp1: Number(r.gp1),
+    gp2: Number(r.gp2),
+    diff: Number(r.gp2) - Number(r.gp1),
+  }));
+
+  const groupedData = [
+    { label: "GP1", prev: gp1PrevOk && tPrev ? Number(tPrev.gp1) : null, curr: tCurr ? Number(tCurr.gp1) : null },
+    { label: "GP2", prev: tPrev ? Number(tPrev.gp2) : null, curr: tCurr ? Number(tCurr.gp2) : null },
+  ];
+
+  const lineData = (metric: (r: FinanceiroMensal) => number): ComparePoint[] => {
+    const p = new Map(prev.map((r) => [r.mes, metric(r)]));
+    const c = new Map(curr.map((r) => [r.mes, metric(r)]));
+    return MESES_CURTO.map((label, i) => ({
+      label,
+      prev: p.get(i + 1) ?? null,
+      curr: c.get(i + 1) ?? null,
+    })).filter((r) => r.prev !== null || r.curr !== null);
+  };
+
+  // Donut por modalidade (participação em processos — proxy até termos GP2 por tipo no mart)
+  const donutTipos = tipos.slice(0, 5).map((t) => ({ name: t.nome, value: t.processos }));
+  const outros = tipos.slice(5).reduce((a, t) => a + t.processos, 0);
+  if (outros > 0) donutTipos.push({ name: "Demais", value: outros });
+
+  const topClientes = [...clientes].sort((a, b) => b.processos - a.processos).slice(0, 5);
+  const totalProcClientes = clientes.reduce((a, c) => a + c.processos, 0);
 
   const filtrosAtivos = [cliente, tipo].filter(Boolean).length;
   const yearHref = (a: number) => {
@@ -210,180 +166,367 @@ export default async function FinanceiroPage({
     return `/financeiro?${q.toString()}`;
   };
 
+  const vsAnt = `vs ${ano - 1}`;
+
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5">
       <PageHeader
         title="Financeiro"
-        description={`Quanto lucramos vs ${ano - 1} e de onde vem a diferença — data do processo`}
+        description="Desempenho financeiro e análise de rentabilidade"
       >
-        <Segmented
-          items={[2025, 2026].map((a) => ({ label: String(a), href: yearHref(a), active: a === ano }))}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-muted-foreground inline-flex items-center gap-1.5 text-xs font-medium">
+            <SlidersHorizontal className="size-3.5" />
+            Filtros{filtrosAtivos > 0 ? ` (${filtrosAtivos})` : ""}
+          </span>
+          <FilterSelect param="cliente" value={cliente} placeholder="Cliente: Todos" options={clientes.map((c) => c.nome)} />
+          <FilterSelect param="tipo" value={tipo} placeholder="Modalidade: Todas" options={tipos.map((t) => t.nome)} />
+          <Segmented items={[2025, 2026].map((a) => ({ label: String(a), href: yearHref(a), active: a === ano }))} />
+        </div>
       </PageHeader>
 
-      {/* Controles de análise */}
-      <div className="bg-card flex flex-wrap items-center gap-2 rounded-xl border p-3 shadow-sm">
-        <span className="text-muted-foreground mr-1 inline-flex items-center gap-1.5 text-xs font-medium">
-          <SlidersHorizontal className="size-3.5" />
-          Filtros{filtrosAtivos > 0 ? ` (${filtrosAtivos})` : ""}
-        </span>
-        <FilterSelect param="cliente" value={cliente} placeholder="Cliente: Todos" options={clientes.map((c) => c.nome)} />
-        <FilterSelect param="tipo" value={tipo} placeholder="Modalidade: Todas" options={tipos.map((t) => t.nome)} />
-      </div>
-
-      {/* 01 · Panorama */}
+      {/* KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
-          title={`Processos ${ano}`}
-          value={tCurr ? num.format(tCurr.processos) : "—"}
-          trend={trendProc}
-          hint={trendProc ? undefined : "Exclui cancelados e CONS"}
-          icon={Package}
+          title={`Receita ${ano} (R$)`}
+          value={tCurr ? fmtMi(Number(tCurr.revenue)) : "—"}
+          icon={CircleDollarSign}
+          accent="red"
+          delta={{ value: spRevenue.var, suffix: vsAnt }}
         />
-        <KpiCard title={`Clientes ${ano}`} value={tCurr ? num.format(tCurr.clientes) : "—"} hint="Distintos no ano" icon={Users} />
         <KpiCard
-          title={`GP2 ${ano}`}
-          value={tCurr ? brlCompact.format(Number(tCurr.gp2)) : "—"}
-          trend={trendGp2}
-          hint={trendGp2 ? undefined : "Lucro da proposta"}
+          title={`GP1 ${ano} (R$)`}
+          value={tCurr ? fmtMi(Number(tCurr.gp1)) : "—"}
           icon={TrendingUp}
+          accent="dark"
+          delta={spGp1 ? { value: spGp1.var, suffix: vsAnt } : undefined}
+          hint={spGp1 ? undefined : `GP1 de ${ano - 1} pendente`}
         />
         <KpiCard
-          title={`Revenue ${ano}`}
-          value={tCurr ? brlCompact.format(Number(tCurr.revenue)) : "—"}
-          trend={trendRevenue}
-          hint={trendRevenue ? undefined : "Receita da proposta"}
-          icon={DollarSign}
+          title={`GP2 ${ano} (R$)`}
+          value={tCurr ? fmtMi(Number(tCurr.gp2)) : "—"}
+          icon={BarChart3}
+          accent="red"
+          delta={{ value: spGp2.var, suffix: vsAnt }}
+        />
+        <KpiCard
+          title="Margem média GP2"
+          value={margemCur !== null ? `${margemCur.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%` : "—"}
+          icon={Percent}
+          accent="dark"
+          delta={{ value: margemPp, unit: "p.p.", suffix: vsAnt }}
         />
       </div>
 
-      {/* Leitura rápida */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {trendGp2 && (
-          <InsightCard
-            kicker="Lucro vs ano anterior"
-            variant={trendGp2.valor >= 0 ? "positive" : "negative"}
-            title={`GP2 ${trendGp2.valor >= 0 ? "cresceu" : "caiu"} ${pctFmt.format(Math.abs(trendGp2.valor))}%`}
-            description={`Somando os mesmos meses de ${ano} e ${ano - 1}, com os filtros atuais aplicados.`}
-          />
-        )}
-        {melhorMes && (
-          <InsightCard
-            kicker="Melhor mês do ano"
-            icon={CalendarRange}
-            title={`${MESES[melhorMes.mes - 1]}: ${brlCompact.format(Number(melhorMes.gp2))} de GP2`}
-            description={`${num.format(melhorMes.processos)} processos no mês — maior lucro mensal de ${ano} até agora.`}
-          />
-        )}
-        {gapGp !== null && gapPct !== null && tCurr && (
-          <InsightCard
-            kicker="Proposta × faturado"
-            variant={Math.abs(gapPct) > 20 ? "warning" : "default"}
-            title={`${brlCompact.format(Math.abs(gapGp))} entre GP2 e GP1 (${pctFmt.format(Math.abs(gapPct))}%)`}
-            description="Diferença entre o lucro da proposta (GP2) e o realizado por faturas sem variação cambial (GP1) — detalhe na seção Gross Profit."
-          />
-        )}
-      </div>
-
-      {/* 02 · Evolução */}
-      <SectionHeader
-        kicker="02 · Evolução"
-        title={`GP2 mês a mês em ${ano}`}
-        description="Lucro líquido da proposta (NetProfit) por mês — rótulos mostram o valor exato"
-      />
-      <Card>
-        <CardContent className="pt-2">
-          <MonthlyBar data={gp2Trend} name="GP2" />
-        </CardContent>
-      </Card>
-
-      {/* 03 · O que mudou */}
-      <SectionHeader
-        kicker="03 · O que mudou"
-        title={`Comparativo mensal ${ano - 1} × ${ano}`}
-        description="GP2, Revenue e Ticket Médio lado a lado, com variação percentual por mês"
-      />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <YoyTable
-          title="GP2"
-          subtitle="Lucro da proposta"
-          ano={ano}
-          rows={toYoyRows(prev, curr, (r) => Number(r.gp2))}
-          totalPrev={tPrev ? Number(tPrev.gp2) : null}
-          totalCurr={tCurr ? Number(tCurr.gp2) : null}
-        />
-        <YoyTable
-          title="Revenue"
-          subtitle="Receita da proposta"
-          ano={ano}
-          rows={toYoyRows(prev, curr, (r) => Number(r.revenue))}
-          totalPrev={tPrev ? Number(tPrev.revenue) : null}
-          totalCurr={tCurr ? Number(tCurr.revenue) : null}
-        />
-        <YoyTable
-          title="Ticket Médio"
-          subtitle="GP2 ÷ processos"
-          ano={ano}
-          rows={toYoyRows(prev, curr, ticket)}
-          totalPrev={ticketTotal(tPrev)}
-          totalCurr={ticketTotal(tCurr)}
-        />
-      </div>
-
-      {/* 04 · Proposta × faturado */}
-      <SectionHeader
-        kicker="04 · Proposta × faturado"
-        title="Gross Profit — GP1 × GP2"
-        description="GP1 = lucro realizado por faturas (sem variação cambial) · barra escura = diferença até o GP2 da proposta"
-      />
-      <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-6">
-        <KpiCard title={`GP1 ${ano}`} value={tCurr ? brlCompact.format(Number(tCurr.gp1)) : "—"} />
-        <KpiCard title={`GP2 ${ano}`} value={tCurr ? brlCompact.format(Number(tCurr.gp2)) : "—"} />
-        <KpiCard title={`Diferença ${ano}`} value={tCurr ? brlCompact.format(Number(tCurr.gp2) - Number(tCurr.gp1)) : "—"} />
-        <KpiCard title={`GP1 ${ano - 1}`} value={tPrev && gp1PrevDisponivel ? brlCompact.format(Number(tPrev.gp1)) : "—"} />
-        <KpiCard title={`GP2 ${ano - 1}`} value={tPrev ? brlCompact.format(Number(tPrev.gp2)) : "—"} />
-        <KpiCard title={`Diferença ${ano - 1}`} value={tPrev && gp1PrevDisponivel ? brlCompact.format(Number(tPrev.gp2) - Number(tPrev.gp1)) : "—"} />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Gross Profit {ano}</CardTitle>
-            <CardDescription>GP1 (claro) + diferença até o GP2 (escuro) — rótulo à direita = GP2</CardDescription>
+      {/* Gross Profit: combo mensal + comparativo anual + destaques/donut */}
+      <div className="grid gap-4 xl:grid-cols-4">
+        <Card className="xl:col-span-2">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Gross Profit {ano}: GP1 vs GP2</CardTitle>
+            <CardDescription>Comparativo mensal (R$) · linha vermelha = diferença</CardDescription>
           </CardHeader>
           <CardContent>
-            <GpStackedBar data={toGpPoints(curr)} />
+            <ComboGp data={comboData} />
           </CardContent>
         </Card>
+
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Gross Profit {ano - 1}</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Gross Profit {ano} vs {ano - 1}</CardTitle>
+            <CardDescription>Comparativo GP1 e GP2 (R$)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <GroupedCompare
+              data={groupedData}
+              prevName={String(ano - 1)}
+              currName={String(ano)}
+            />
+          </CardContent>
+        </Card>
+
+        <div className="flex flex-col gap-4">
+          <Card className="flex-1">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Destaques Financeiros {ano}</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              <Destaque
+                icon={ArrowLeftRight}
+                iconClass="bg-chart-2/12 text-chart-2"
+                label="Diferença GP1 e GP2"
+                value={diffGp !== null ? fmtMi(diffGp) : "—"}
+                delta={diffGpVar}
+                suffix={vsAnt}
+              />
+              <Destaque
+                icon={PiggyBank}
+                iconClass="bg-emerald-500/12 text-emerald-600"
+                label="Receita acumulada"
+                value={tCurr ? fmtMi(Number(tCurr.revenue)) : "—"}
+                delta={spRevenue.var}
+                suffix={vsAnt}
+              />
+              <Destaque
+                icon={Wallet}
+                iconClass="bg-chart-5/12 text-chart-5"
+                label={`Receita ${ano - 1} (mesmo período)`}
+                value={fmtMi(spRevenue.prev)}
+                delta={spRevenue.var !== null ? -spRevenue.var : null}
+                suffix={`vs ${ano}`}
+              />
+              <Destaque
+                icon={Percent}
+                iconClass="bg-chart-7/15 text-chart-7"
+                label="Margem média GP2"
+                value={margemCur !== null ? `${margemCur.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%` : "—"}
+                delta={margemPp}
+                unit="p.p."
+                suffix={vsAnt}
+              />
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Tabela mensal + modalidade/clientes */}
+      <div className="grid gap-4 xl:grid-cols-4">
+        <Card className="xl:col-span-3">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">
+              Desempenho Financeiro Mensal: {ano - 1} vs {ano}
+            </CardTitle>
             <CardDescription>
-              {gp1PrevDisponivel
-                ? "GP1 (claro) + diferença até o GP2 (escuro) — rótulo à direita = GP2"
-                : `GP1 de ${ano - 1} ainda não sincronizado`}
+              Receita, GP1, GP2 e margem GP2 mês a mês, com variação percentual
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {gp1PrevDisponivel ? (
-              <GpStackedBar data={toGpPoints(prev)} />
+            {curr.length === 0 && prev.length === 0 ? (
+              <EmptyState className="h-[200px]" description="Sem dados para os filtros atuais." />
             ) : (
-              <EmptyState
-                className="h-[420px]"
-                title={`GP1 de ${ano - 1} pendente`}
-                description={`Campo pesado do Tier2, sincronizado por ano. O GP2 de ${ano - 1} já aparece nas tabelas acima.`}
-              />
+              <MensalTable ano={ano} prev={prev} curr={curr} tPrev={tPrev} tCurr={tCurr} gp1PrevOk={gp1PrevOk} />
             )}
+          </CardContent>
+        </Card>
+
+        <div className="flex flex-col gap-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Modalidades {ano}</CardTitle>
+              <CardDescription>Participação por processos</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Donut
+                data={donutTipos}
+                centerValue={tCurr ? fmtMi(Number(tCurr.gp2)) : undefined}
+                centerLabel={`GP2 ${ano}`}
+                colors={["var(--chart-3)", "var(--chart-2)", "var(--chart-5)", "var(--chart-6)", "var(--chart-7)", "var(--chart-4)"]}
+                legend="bottom"
+                size={170}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Top 5 Clientes {ano}</CardTitle>
+              <CardDescription>Por volume de processos</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {topClientes.length === 0 ? (
+                <EmptyState className="h-[140px]" />
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {topClientes.map((c, i) => (
+                    <li key={c.nome} className="flex items-center justify-between gap-3 text-[13px]">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="bg-primary/10 text-primary flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold">
+                          {i + 1}
+                        </span>
+                        <span className="truncate" title={c.nome}>{nomeCurto(c.nome)}</span>
+                      </span>
+                      <span className="text-muted-foreground shrink-0 tabular-nums">
+                        {num.format(c.processos)}
+                        <span className="opacity-75">
+                          {" "}({totalProcClientes > 0 ? ((c.processos / totalProcClientes) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) : 0}%)
+                        </span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Evoluções */}
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Evolução da Receita (R$)</CardTitle>
+            <CardDescription>{ano} × {ano - 1} — receita da proposta por mês</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CompareLine
+              data={lineData((r) => Number(r.revenue))}
+              prevName={String(ano - 1)}
+              currName={String(ano)}
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Evolução do GP2 (R$)</CardTitle>
+            <CardDescription>{ano} × {ano - 1} — lucro da proposta por mês</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CompareLine
+              data={lineData((r) => Number(r.gp2))}
+              prevName={String(ano - 1)}
+              currName={String(ano)}
+            />
           </CardContent>
         </Card>
       </div>
 
       <p className="text-muted-foreground text-xs">
-        Fonte: Tier2 (ShipmentProcessView + ShipmentProfitProposalView) · GP1 = lucro por faturas sem
-        variação cambial · GP2 = lucro da proposta · Revenue = receita da proposta · Ticket Médio = GP2 ÷
-        processos · Data-base: data do processo; exclui cancelados e consolidações (CONS). Equivale ao
-        Power BI com filtro Sistema = Tier2.
+        Fonte: Tier2 · GP1 = lucro por faturas sem variação cambial · GP2 = lucro da proposta ·
+        Receita = TotalSalesProposal · Margem GP2 = GP2 ÷ Receita · Variações comparam os mesmos
+        meses de {ano} e {ano - 1} · Data-base: data do processo; exclui cancelados e consolidações
+        (CONS). Equivale ao Power BI com filtro Sistema = Tier2.
       </p>
+    </div>
+  );
+}
+
+/** Tabela mensal completa: Receita | GP1 | GP2 | Margem, com anos lado a lado. */
+function MensalTable({
+  ano,
+  prev,
+  curr,
+  tPrev,
+  tCurr,
+  gp1PrevOk,
+}: {
+  ano: number;
+  prev: FinanceiroMensal[];
+  curr: FinanceiroMensal[];
+  tPrev?: { revenue: number; gp1: number; gp2: number };
+  tCurr?: { revenue: number; gp1: number; gp2: number };
+  gp1PrevOk: boolean;
+}) {
+  const p = new Map(prev.map((r) => [r.mes, r]));
+  const c = new Map(curr.map((r) => [r.mes, r]));
+  const meses = Array.from({ length: 12 }, (_, i) => i + 1).filter((m) => p.has(m) || c.has(m));
+
+  const margem = (r?: FinanceiroMensal) =>
+    r && Number(r.revenue) > 0 ? (Number(r.gp2) / Number(r.revenue)) * 100 : null;
+
+  const cell = (v: number | null | undefined) => (v != null ? int.format(v) : "—");
+  const pctCell = (v: number | null) =>
+    v !== null ? `${v.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%` : "—";
+
+  const mPrevTot = tPrev && Number(tPrev.revenue) > 0 ? (Number(tPrev.gp2) / Number(tPrev.revenue)) * 100 : null;
+  const mCurTot = tCurr && Number(tCurr.revenue) > 0 ? (Number(tCurr.gp2) / Number(tCurr.revenue)) * 100 : null;
+
+  return (
+    <div className="overflow-x-auto">
+      <Table className="text-xs">
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead rowSpan={2} className="align-bottom">Mês</TableHead>
+            <TableHead colSpan={3} className="border-b text-center">Receita (R$)</TableHead>
+            <TableHead colSpan={3} className="border-b text-center">GP1 (R$)</TableHead>
+            <TableHead colSpan={3} className="border-b text-center">GP2 (R$)</TableHead>
+            <TableHead colSpan={3} className="border-b text-center">Margem GP2 (%)</TableHead>
+          </TableRow>
+          <TableRow className="hover:bg-transparent">
+            {["Receita", "GP1", "GP2", "Margem"].flatMap((g) => [
+              <TableHead key={`${g}-p`} className="text-right">{ano - 1}</TableHead>,
+              <TableHead key={`${g}-c`} className="text-right">{ano}</TableHead>,
+              <TableHead key={`${g}-v`} className="text-right">Var.</TableHead>,
+            ])}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {meses.map((m) => {
+            const rp = p.get(m);
+            const rc = c.get(m);
+            const mp = margem(rp);
+            const mc = margem(rc);
+            return (
+              <TableRow key={m}>
+                <TableCell className="py-1.5 whitespace-nowrap">{MESES[m - 1]}</TableCell>
+                <TableCell className="py-1.5 text-right tabular-nums">{cell(rp && Number(rp.revenue))}</TableCell>
+                <TableCell className="py-1.5 text-right tabular-nums">{cell(rc && Number(rc.revenue))}</TableCell>
+                <TableCell className="py-1.5 text-right">
+                  <Delta value={variacao(rp && Number(rp.revenue), rc && Number(rc.revenue))} className="text-[11px]" />
+                </TableCell>
+                <TableCell className="py-1.5 text-right tabular-nums">
+                  {gp1PrevOk ? cell(rp && Number(rp.gp1)) : "—"}
+                </TableCell>
+                <TableCell className="py-1.5 text-right tabular-nums">{cell(rc && Number(rc.gp1))}</TableCell>
+                <TableCell className="py-1.5 text-right">
+                  <Delta
+                    value={gp1PrevOk ? variacao(rp && Number(rp.gp1), rc && Number(rc.gp1)) : null}
+                    className="text-[11px]"
+                  />
+                </TableCell>
+                <TableCell className="py-1.5 text-right tabular-nums">{cell(rp && Number(rp.gp2))}</TableCell>
+                <TableCell className="py-1.5 text-right tabular-nums">{cell(rc && Number(rc.gp2))}</TableCell>
+                <TableCell className="py-1.5 text-right">
+                  <Delta value={variacao(rp && Number(rp.gp2), rc && Number(rc.gp2))} className="text-[11px]" />
+                </TableCell>
+                <TableCell className="py-1.5 text-right tabular-nums">{pctCell(mp)}</TableCell>
+                <TableCell className="py-1.5 text-right tabular-nums">{pctCell(mc)}</TableCell>
+                <TableCell className="py-1.5 text-right">
+                  <Delta
+                    value={mp !== null && mc !== null ? mc - mp : null}
+                    unit="p.p."
+                    digits={1}
+                    className="text-[11px]"
+                  />
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+        <TableFooter>
+          <TableRow className="hover:bg-transparent">
+            <TableCell>Total</TableCell>
+            <TableCell className="text-right tabular-nums">{cell(tPrev && Number(tPrev.revenue))}</TableCell>
+            <TableCell className="text-right tabular-nums">{cell(tCurr && Number(tCurr.revenue))}</TableCell>
+            <TableCell className="text-right">
+              <Delta value={variacao(tPrev && Number(tPrev.revenue), tCurr && Number(tCurr.revenue))} className="text-[11px]" />
+            </TableCell>
+            <TableCell className="text-right tabular-nums">
+              {gp1PrevOk ? cell(tPrev && Number(tPrev.gp1)) : "—"}
+            </TableCell>
+            <TableCell className="text-right tabular-nums">{cell(tCurr && Number(tCurr.gp1))}</TableCell>
+            <TableCell className="text-right">
+              <Delta
+                value={gp1PrevOk ? variacao(tPrev && Number(tPrev.gp1), tCurr && Number(tCurr.gp1)) : null}
+                className="text-[11px]"
+              />
+            </TableCell>
+            <TableCell className="text-right tabular-nums">{cell(tPrev && Number(tPrev.gp2))}</TableCell>
+            <TableCell className="text-right tabular-nums">{cell(tCurr && Number(tCurr.gp2))}</TableCell>
+            <TableCell className="text-right">
+              <Delta value={variacao(tPrev && Number(tPrev.gp2), tCurr && Number(tCurr.gp2))} className="text-[11px]" />
+            </TableCell>
+            <TableCell className="text-right tabular-nums">{pctCell(mPrevTot)}</TableCell>
+            <TableCell className="text-right tabular-nums">{pctCell(mCurTot)}</TableCell>
+            <TableCell className="text-right">
+              <Delta
+                value={mPrevTot !== null && mCurTot !== null ? mCurTot - mPrevTot : null}
+                unit="p.p."
+                digits={1}
+                className="text-[11px]"
+              />
+            </TableCell>
+          </TableRow>
+        </TableFooter>
+      </Table>
     </div>
   );
 }

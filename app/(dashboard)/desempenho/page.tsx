@@ -1,12 +1,14 @@
-import { Package, Users, Ship, TrendingUp, Anchor, Handshake } from "lucide-react";
+import { Boxes, Package, Plane, Ship, Truck, TrendingUp, UsersRound } from "lucide-react";
 
-import { PageHeader, SectionHeader } from "@/components/dashboard/page-header";
+import { PageHeader } from "@/components/dashboard/page-header";
 import { KpiCard } from "@/components/dashboard/kpi-card";
-import { InsightCard } from "@/components/dashboard/insight-card";
-import { BarList } from "@/components/dashboard/bar-list";
 import { Segmented } from "@/components/dashboard/segmented";
 import { EmptyState } from "@/components/dashboard/empty-state";
+import { YoyTable, type YoyRow } from "@/components/dashboard/yoy-table";
+import { EntityBars } from "@/components/charts/entity-bars";
+import { CompareLine, type ComparePoint } from "@/components/charts/compare-line";
 import { MultiLine, type MultiLinePoint } from "@/components/charts/multi-line";
+import { Donut } from "@/components/charts/donut";
 import {
   Card,
   CardContent,
@@ -23,117 +25,32 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MESES, MESES_CURTO, fmtMi, int, nomeCurto, num, variacao } from "@/lib/format";
 import {
-  getDesempenhoTotais,
-  getDesempenhoMensal,
-  getModalidade,
-  getTopClientesAno,
-  getAgentes,
   getAgenteMensal,
+  getAgentes,
+  getDesempenhoMensal,
+  getDesempenhoTotais,
+  getModalidade,
   type MensalRow,
 } from "@/lib/queries/desempenho";
 
-const MESES = [
-  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-];
-const MESES_CURTO = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
-
-const num = new Intl.NumberFormat("pt-BR");
-const pctFmt = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
-const brl = new Intl.NumberFormat("pt-BR", {
-  style: "currency", currency: "BRL", notation: "compact", maximumFractionDigits: 1,
-});
-const brlFull = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 });
-const pct = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
-
-function Variacao({ antes, depois }: { antes: number; depois: number }) {
-  if (!antes || !depois) return <span className="text-muted-foreground">—</span>;
-  const v = ((depois - antes) / antes) * 100;
-  return (
-    <span
-      className={
-        v < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"
-      }
-    >
-      {v > 0 ? "+" : ""}{pct.format(v)}%
-    </span>
-  );
+function modalIcon(nome: string) {
+  const n = nome.toLowerCase();
+  if (n.includes("marítima") || n.includes("maritima") || n.includes("ocean")) return Ship;
+  if (n.includes("aérea") || n.includes("aerea") || n.includes("air")) return Plane;
+  if (n.includes("road") || n.includes("rodo")) return Truck;
+  return Boxes;
 }
 
-/** Variação "mesmo período": considera só os meses que têm dados no ano corrente. */
-function samePeriodTrend(rows: MensalRow[], ano: number, campo: "processos" | "teu") {
+function samePeriodVar(rows: MensalRow[], ano: number, campo: "processos" | "teu"): number | null {
   const mesesCur = new Set(rows.filter((r) => r.ano === ano).map((r) => r.mes));
-  if (mesesCur.size === 0) return undefined;
+  if (mesesCur.size === 0) return null;
   const somaCur = rows.filter((r) => r.ano === ano).reduce((a, r) => a + Number(r[campo]), 0);
   const somaPrev = rows
     .filter((r) => r.ano === ano - 1 && mesesCur.has(r.mes))
     .reduce((a, r) => a + Number(r[campo]), 0);
-  if (somaPrev === 0) return undefined;
-  const v = (somaCur / somaPrev - 1) * 100;
-  return {
-    label: `${v >= 0 ? "+" : ""}${pctFmt.format(v)}% vs mesmo período`,
-    direction: (v > 0 ? "up" : v < 0 ? "down" : "neutral") as "up" | "down" | "neutral",
-    valor: v,
-  };
-}
-
-function ComparativoMensal({
-  titulo, ano, rows, campo,
-}: {
-  titulo: string; ano: number; rows: MensalRow[]; campo: "processos" | "teu";
-}) {
-  const prev = new Map(rows.filter((r) => r.ano === ano - 1).map((r) => [r.mes, Number(r[campo])]));
-  const cur = new Map(rows.filter((r) => r.ano === ano).map((r) => [r.mes, Number(r[campo])]));
-  const totPrev = [...prev.values()].reduce((a, b) => a + b, 0);
-  const totCur = [...cur.values()].reduce((a, b) => a + b, 0);
-  const linhas = MESES.map((nome, i) => ({ nome, m: i + 1, a: prev.get(i + 1), b: cur.get(i + 1) }))
-    .filter((l) => l.a != null || l.b != null);
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{titulo}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {linhas.length === 0 ? (
-          <EmptyState className="h-[160px]" />
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead>Mês</TableHead>
-                <TableHead className="text-right">{ano - 1}</TableHead>
-                <TableHead className="text-right">{ano}</TableHead>
-                <TableHead className="text-right">Variação %</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {linhas.map(({ nome, m, a, b }) => (
-                <TableRow key={m}>
-                  <TableCell className="py-1.5">{nome}</TableCell>
-                  <TableCell className="py-1.5 text-right tabular-nums">{a != null ? num.format(a) : "—"}</TableCell>
-                  <TableCell className="py-1.5 text-right tabular-nums">{b != null ? num.format(b) : "—"}</TableCell>
-                  <TableCell className="py-1.5 text-right tabular-nums">
-                    <Variacao antes={a ?? 0} depois={b ?? 0} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-            <TableFooter>
-              <TableRow className="hover:bg-transparent">
-                <TableCell>Total</TableCell>
-                <TableCell className="text-right tabular-nums">{num.format(totPrev)}</TableCell>
-                <TableCell className="text-right tabular-nums">{num.format(totCur)}</TableCell>
-                <TableCell className="text-right tabular-nums">
-                  <Variacao antes={totPrev} depois={totCur} />
-                </TableCell>
-              </TableRow>
-            </TableFooter>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
-  );
+  return variacao(somaPrev, somaCur);
 }
 
 export default async function DesempenhoPage({
@@ -144,46 +61,72 @@ export default async function DesempenhoPage({
   const sp = await searchParams;
   const ano = Number(sp.ano) || 2026;
 
-  const [totais, mensal, modalidade, topClientes, agentes] = await Promise.all([
+  const [totais, mensal, modalidade, agentes, agentesPrev] = await Promise.all([
     getDesempenhoTotais(ano),
     getDesempenhoMensal(ano),
     getModalidade(ano),
-    getTopClientesAno(ano, 18),
     getAgentes(ano),
+    getAgentes(ano - 1),
   ]);
 
   const top3 = agentes.slice(0, 3).map((a) => a.agent_name);
   const agenteMensal = await getAgenteMensal(ano, top3);
 
-  const shortName = (n: string) => (n.length > 22 ? n.slice(0, 22) + "…" : n);
-  const linhas: MultiLinePoint[] = [];
+  const linhasTop3: MultiLinePoint[] = [];
   for (let m = 1; m <= 12; m++) {
     const rows = agenteMensal.filter((r) => r.mes === m);
     if (rows.length === 0) continue;
     const point: MultiLinePoint = { label: MESES_CURTO[m - 1] };
     for (const a of top3) {
-      point[shortName(a)] = rows.find((r) => r.agent_name === a)?.processos ?? 0;
+      point[nomeCurto(a)] = rows.find((r) => r.agent_name === a)?.processos ?? 0;
     }
-    linhas.push(point);
+    linhasTop3.push(point);
   }
 
   const topAgentesGp2 = [...agentes].sort((a, b) => Number(b.gp2) - Number(a.gp2)).slice(0, 10);
+  const totalGp2Top = topAgentesGp2.reduce((a, r) => a + Number(r.gp2), 0);
+  const totalProcTop = topAgentesGp2.reduce((a, r) => a + Number(r.processos), 0);
 
-  // Leituras derivadas dos dados carregados
-  const trendProc = samePeriodTrend(mensal, ano, "processos");
-  const trendTeu = samePeriodTrend(mensal, ano, "teu");
+  const trendProc = samePeriodVar(mensal, ano, "processos");
+  const trendTeu = samePeriodVar(mensal, ano, "teu");
+  const agentesAtivos = agentes.filter((a) => Number(a.processos) > 0).length;
+  const agentesAtivosPrev = agentesPrev.filter((a) => Number(a.processos) > 0).length;
+
   const totalProc = Number(totais?.processos ?? 0);
-  const topModal = modalidade[0];
-  const shareModal = topModal && totalProc > 0 ? (Number(topModal.processos) / totalProc) * 100 : null;
-  const topAgente = topAgentesGp2[0];
   const gp2Total = Number(totais?.gp2 ?? 0);
-  const shareAgente = topAgente && gp2Total > 0 ? (Number(topAgente.gp2) / gp2Total) * 100 : null;
+
+  // Evolução mensal: linha 2 anos
+  const procPrev = new Map(mensal.filter((r) => r.ano === ano - 1).map((r) => [r.mes, Number(r.processos)]));
+  const procCur = new Map(mensal.filter((r) => r.ano === ano).map((r) => [r.mes, Number(r.processos)]));
+  const evolucao: ComparePoint[] = MESES_CURTO.map((label, i) => ({
+    label,
+    prev: procPrev.get(i + 1) ?? null,
+    curr: procCur.get(i + 1) ?? null,
+  })).filter((r) => r.prev !== null || r.curr !== null);
+
+  // Tabelas comparativas
+  const teuPrev = new Map(mensal.filter((r) => r.ano === ano - 1).map((r) => [r.mes, Number(r.teu)]));
+  const teuCur = new Map(mensal.filter((r) => r.ano === ano).map((r) => [r.mes, Number(r.teu)]));
+  const toRows = (p: Map<number, number>, c: Map<number, number>): YoyRow[] =>
+    MESES.map((nome, i) => ({
+      label: nome,
+      prev: p.get(i + 1) ?? null,
+      curr: c.get(i + 1) ?? null,
+    })).filter((r) => r.prev !== null || r.curr !== null);
+  const sumVals = (m: Map<number, number>) => [...m.values()].reduce((a, b) => a + b, 0);
+
+  // Modalidades
+  const donutModal = modalidade.slice(0, 5).map((m) => ({ name: m.modalidade, value: Number(m.processos) }));
+  const outrosModal = modalidade.slice(5).reduce((a, m) => a + Number(m.processos), 0);
+  if (outrosModal > 0) donutModal.push({ name: "Demais", value: outrosModal });
+
+  const vsAnt = `vs ${ano - 1}`;
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5">
       <PageHeader
         title="Desempenho"
-        description={`O ano está melhor ou pior que ${ano - 1} — e quem explica o resultado (data do processo)`}
+        description="Análise detalhada de performance operacional e de agentes"
       >
         <Segmented
           items={[2024, 2025, 2026].map((a) => ({
@@ -194,137 +137,217 @@ export default async function DesempenhoPage({
         />
       </PageHeader>
 
-      {/* 01 · Panorama do ano */}
+      {/* KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           title={`Processos ${ano}`}
           value={num.format(totalProc)}
-          trend={trendProc}
-          hint={trendProc ? undefined : "Sem cancelados/consolidações"}
           icon={Package}
+          accent="red"
+          delta={{ value: trendProc, suffix: vsAnt }}
         />
-        <KpiCard title={`Clientes ${ano}`} value={num.format(totais?.clientes ?? 0)} hint="Distintos no ano" icon={Users} />
+        <KpiCard
+          title="Agentes ativos"
+          value={num.format(agentesAtivos)}
+          icon={UsersRound}
+          accent="dark"
+          delta={{ value: variacao(agentesAtivosPrev, agentesAtivos), suffix: vsAnt }}
+        />
         <KpiCard
           title={`TEU's ${ano}`}
-          value={num.format(totais?.teu ?? 0)}
-          trend={trendTeu}
-          hint={trendTeu ? undefined : "Contêineres"}
+          value={num.format(Number(totais?.teu ?? 0))}
           icon={Ship}
+          accent="red"
+          delta={{ value: trendTeu, suffix: vsAnt }}
         />
-        <KpiCard title={`GP2 ${ano}`} value={brl.format(gp2Total)} hint="Lucro realizado (faturas)" icon={TrendingUp} />
-      </div>
-
-      {/* Leitura rápida */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {trendProc && (
-          <InsightCard
-            kicker="Volume vs ano anterior"
-            variant={trendProc.valor >= 0 ? "positive" : "negative"}
-            title={`Processos ${trendProc.valor >= 0 ? "cresceram" : "caíram"} ${pctFmt.format(Math.abs(trendProc.valor))}%`}
-            description={`Comparando os mesmos meses de ${ano} e ${ano - 1} (meses sem dados em ${ano} ficam de fora da conta).`}
-          />
-        )}
-        {shareModal !== null && topModal && (
-          <InsightCard
-            kicker="Modalidade dominante"
-            icon={Anchor}
-            title={`${topModal.modalidade}: ${pctFmt.format(shareModal)}% da operação`}
-            description={`${num.format(Number(topModal.processos))} de ${num.format(totalProc)} processos em ${ano}.`}
-          />
-        )}
-        {shareAgente !== null && topAgente && (
-          <InsightCard
-            kicker="Parceiro-chave"
-            icon={Handshake}
-            title={`${shortName(topAgente.agent_name)} gera ${pctFmt.format(shareAgente)}% do GP2`}
-            description={`${brlFull.format(Number(topAgente.gp2))} em lucro realizado, ticket médio de ${brlFull.format(Number(topAgente.ticket_medio))} por processo.`}
-          />
-        )}
-      </div>
-
-      {/* 02 · O que mudou */}
-      <SectionHeader
-        kicker="02 · O que mudou"
-        title={`Comparativo mensal ${ano - 1} × ${ano}`}
-        description="Evolução mês a mês de volume e contêineres, com variação percentual"
-      />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <ComparativoMensal titulo={`Processos ${ano - 1} × ${ano}`} ano={ano} rows={mensal} campo="processos" />
-        <ComparativoMensal titulo={`TEU's ${ano - 1} × ${ano}`} ano={ano} rows={mensal} campo="teu" />
-        <BarList
-          title={`Processos por Modalidade ${ano}`}
-          items={modalidade.map((m) => ({ label: m.modalidade, value: Number(m.processos) }))}
+        <KpiCard
+          title={`GP2 ${ano} (R$)`}
+          value={fmtMi(gp2Total)}
+          icon={TrendingUp}
+          accent="dark"
+          hint="Lucro realizado (faturas)"
         />
       </div>
 
-      {/* 03 · Onde está o volume */}
-      <SectionHeader
-        kicker="03 · Onde está o volume"
-        title="Principais clientes do ano"
-        description="Quantidade de processos por cliente — concentração da carteira"
-      />
-      <BarList
-        title="Principais Clientes por Quantidade de Processos"
-        items={topClientes.map((c) => ({ label: c.customer_name, value: Number(c.processos) }))}
-        max={18}
-      />
-
-      {/* 04 · Quem entrega */}
-      <SectionHeader
-        kicker="04 · Quem entrega"
-        title="Painel de Agentes"
-        description="Parceiros por volume e por lucro realizado (GP2) — e a disputa mês a mês entre os líderes"
-      />
+      {/* Agentes: volume + comparativo top 3 */}
       <div className="grid gap-4 xl:grid-cols-2">
-        <BarList
-          title="Principais Agentes por Quantidade de Processos"
-          items={agentes.slice(0, 15).map((a) => ({ label: a.agent_name, value: Number(a.processos) }))}
-          max={15}
-        />
-
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Top 10 Agentes por GP2</CardTitle>
-            <CardDescription>GP2 = lucro realizado · ticket médio por processo</CardDescription>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Principais Agentes por Quantidade de Processos</CardTitle>
+            <CardDescription>Top 10 do ano</CardDescription>
           </CardHeader>
           <CardContent>
-            {topAgentesGp2.length === 0 ? (
-              <EmptyState className="h-[200px]" />
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead>Agente</TableHead>
-                    <TableHead className="text-right">Processos</TableHead>
-                    <TableHead className="text-right">GP2</TableHead>
-                    <TableHead className="text-right">Ticket Médio</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {topAgentesGp2.map((a) => (
-                    <TableRow key={a.agent_name}>
-                      <TableCell className="max-w-[220px] truncate py-1.5" title={a.agent_name}>{a.agent_name}</TableCell>
-                      <TableCell className="py-1.5 text-right tabular-nums">{num.format(Number(a.processos))}</TableCell>
-                      <TableCell className="py-1.5 text-right tabular-nums">{brlFull.format(Number(a.gp2))}</TableCell>
-                      <TableCell className="py-1.5 text-right tabular-nums">{brlFull.format(Number(a.ticket_medio))}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
+            <EntityBars
+              data={agentes.slice(0, 10).map((a) => ({ label: a.agent_name, value: Number(a.processos) }))}
+              color="var(--chart-2)"
+              height={290}
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Comparativo Top 3 Agentes — Processos por Mês</CardTitle>
+            <CardDescription>Disputa mês a mês entre os líderes de volume</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MultiLine data={linhasTop3} series={top3.map(nomeCurto)} height={290} />
           </CardContent>
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Comparativo mensal — 3 principais agentes</CardTitle>
-          <CardDescription>Processos por mês em {ano} — passe o mouse para comparar os parceiros</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <MultiLine data={linhas} series={top3.map(shortName)} />
-        </CardContent>
-      </Card>
+      {/* GP2 por agente + evolução */}
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Top 10 Agentes por GP2</CardTitle>
+            <CardDescription>Lucro realizado e ticket médio por processo</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {topAgentesGp2.length === 0 ? (
+              <EmptyState className="h-[240px]" />
+            ) : (
+              <Table className="text-[13px]">
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="w-8">#</TableHead>
+                    <TableHead>Agente</TableHead>
+                    <TableHead className="text-right">Processos</TableHead>
+                    <TableHead className="text-right">GP2 (R$)</TableHead>
+                    <TableHead className="text-right">Ticket Médio</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {topAgentesGp2.map((a, i) => (
+                    <TableRow key={a.agent_name}>
+                      <TableCell className="py-1.5">
+                        <span className="bg-primary/10 text-primary flex size-5 items-center justify-center rounded-full text-[10px] font-bold">
+                          {i + 1}
+                        </span>
+                      </TableCell>
+                      <TableCell className="max-w-[240px] truncate py-1.5" title={a.agent_name}>
+                        {nomeCurto(a.agent_name)}
+                      </TableCell>
+                      <TableCell className="py-1.5 text-right tabular-nums">{num.format(Number(a.processos))}</TableCell>
+                      <TableCell className="py-1.5 text-right tabular-nums">{int.format(Number(a.gp2))}</TableCell>
+                      <TableCell className="py-1.5 text-right tabular-nums">{int.format(Number(a.ticket_medio))}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+                <TableFooter>
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={2}>Total (Top 10)</TableCell>
+                    <TableCell className="text-right tabular-nums">{num.format(totalProcTop)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{int.format(totalGp2Top)}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {totalProcTop > 0 ? int.format(totalGp2Top / totalProcTop) : "—"}
+                    </TableCell>
+                  </TableRow>
+                </TableFooter>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Evolução de Processos {ano} x {ano - 1}</CardTitle>
+            <CardDescription>Mensal — data do processo</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CompareLine
+              data={evolucao}
+              prevName={String(ano - 1)}
+              currName={String(ano)}
+              height={330}
+              showLabels
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Modalidades + comparativos mensais */}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Desempenho por Modalidade</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {modalidade.length === 0 ? (
+              <EmptyState className="h-[160px]" />
+            ) : (
+              <ul className="flex flex-col gap-2.5">
+                {modalidade.map((m) => {
+                  const Icon = modalIcon(m.modalidade);
+                  const share = totalProc > 0 ? (Number(m.processos) / totalProc) * 100 : 0;
+                  return (
+                    <li key={m.modalidade} className="flex items-center gap-3">
+                      <div className="bg-muted flex size-9 shrink-0 items-center justify-center rounded-full">
+                        <Icon className="size-4" />
+                      </div>
+                      <span className="min-w-0 flex-1 truncate text-sm" title={m.modalidade}>
+                        {m.modalidade}
+                      </span>
+                      <span className="text-sm font-semibold tabular-nums">{num.format(Number(m.processos))}</span>
+                      <span className="text-muted-foreground w-12 text-right text-xs tabular-nums">
+                        {share.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Processos por Modalidade</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Donut
+              data={donutModal}
+              centerValue={num.format(totalProc)}
+              centerLabel="Processos"
+              colors={["var(--chart-2)", "var(--chart-5)", "var(--chart-6)", "var(--chart-7)", "var(--chart-1)", "var(--chart-4)"]}
+              legend="bottom"
+              size={175}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Processos por Mês</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <YoyTable
+              ano={ano}
+              rows={toRows(procPrev, procCur)}
+              totalPrev={sumVals(procPrev)}
+              totalCurr={sumVals(procCur)}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">TEU&apos;s por Mês</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <YoyTable
+              ano={ano}
+              rows={toRows(teuPrev, teuCur)}
+              totalPrev={sumVals(teuPrev)}
+              totalCurr={sumVals(teuCur)}
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      <p className="text-muted-foreground text-xs">
+        Fonte: Tier2 · Data-base: data do processo · GP2 = lucro realizado (faturas) · Exclui
+        cancelados e consolidações (CONS) · Variações comparam os mesmos meses de {ano} e {ano - 1}.
+      </p>
     </div>
   );
 }

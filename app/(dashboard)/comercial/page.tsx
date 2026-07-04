@@ -1,12 +1,14 @@
-import { Hash, Package, Users, TrendingUp, XCircle, Award } from "lucide-react";
+import { CircleDollarSign, Package, Receipt, Users } from "lucide-react";
 
-import { PageHeader, SectionHeader } from "@/components/dashboard/page-header";
+import { PageHeader } from "@/components/dashboard/page-header";
 import { KpiCard } from "@/components/dashboard/kpi-card";
-import { InsightCard } from "@/components/dashboard/insight-card";
-import { BarList, aggregate } from "@/components/dashboard/bar-list";
+import { Delta } from "@/components/dashboard/delta";
 import { Segmented } from "@/components/dashboard/segmented";
 import { EmptyState } from "@/components/dashboard/empty-state";
-import { AreaTrend, type AreaTrendPoint } from "@/components/charts/area-trend";
+import { YoyTable, type YoyRow } from "@/components/dashboard/yoy-table";
+import { CompareLine, type ComparePoint } from "@/components/charts/compare-line";
+import { MonthlyBar, type MonthlyBarPoint } from "@/components/charts/monthly-bar";
+import { Donut } from "@/components/charts/donut";
 import {
   Card,
   CardContent,
@@ -22,231 +24,339 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getSemanas, getDetalheSemana, getCancelados } from "@/lib/queries/comercial";
+import { MESES, MESES_CURTO, fmtMi, int, nomeCurto, num, variacao } from "@/lib/format";
+import { getModalidade, getTopClientesAno, getDesempenhoTotais } from "@/lib/queries/desempenho";
+import { getFinanceiroMensal, getFinanceiroTotais, type FinanceiroMensal } from "@/lib/queries/financeiro";
 
-const num = new Intl.NumberFormat("pt-BR");
-const pct = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
-const brl = new Intl.NumberFormat("pt-BR", {
-  style: "currency",
-  currency: "BRL",
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
+type Stat = { label: string; prev: number | null; curr: number | null };
 
-function varLabel(cur: number, prev: number | undefined): { label: string; direction: "up" | "down" | "neutral" } | undefined {
-  if (prev == null || prev === 0) return undefined;
-  const v = (cur / prev - 1) * 100;
+/** Estatísticas Total / Média / Maior / Menor de uma métrica mensal. */
+function stats(prev: FinanceiroMensal[], curr: FinanceiroMensal[], metric: (r: FinanceiroMensal) => number) {
+  const vals = (rows: FinanceiroMensal[]) => rows.map(metric).filter((v) => v > 0);
+  const p = vals(prev);
+  const c = vals(curr);
+  const agg = (arr: number[], f: (a: number, b: number) => number, init: number) =>
+    arr.length ? arr.reduce(f, init) : null;
   return {
-    label: `${v >= 0 ? "+" : ""}${pct.format(v)}% vs sem. anterior`,
-    direction: v > 0 ? "up" : v < 0 ? "down" : "neutral",
+    total: { prev: agg(p, (a, b) => a + b, 0), curr: agg(c, (a, b) => a + b, 0) },
+    media: {
+      prev: p.length ? p.reduce((a, b) => a + b, 0) / p.length : null,
+      curr: c.length ? c.reduce((a, b) => a + b, 0) / c.length : null,
+    },
+    maior: { prev: agg(p, Math.max, -Infinity), curr: agg(c, Math.max, -Infinity) },
+    menor: { prev: agg(p, Math.min, Infinity), curr: agg(c, Math.min, Infinity) },
   };
+}
+
+function StatRows({ rows }: { rows: Stat[] }) {
+  return (
+    <Table className="text-[13px]">
+      <TableBody>
+        {rows.map((r) => (
+          <TableRow key={r.label} className="hover:bg-transparent">
+            <TableCell className="text-muted-foreground py-1.5">{r.label}</TableCell>
+            <TableCell className="py-1.5 text-right tabular-nums">
+              {r.prev !== null ? fmtMi(r.prev) : "—"}
+            </TableCell>
+            <TableCell className="py-1.5 text-right font-semibold tabular-nums">
+              {r.curr !== null ? fmtMi(r.curr) : "—"}
+            </TableCell>
+            <TableCell className="py-1.5 text-right">
+              <Delta value={variacao(r.prev, r.curr)} className="text-[11px]" />
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
 }
 
 export default async function ComercialPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ano?: string; semana?: string }>;
+  searchParams: Promise<{ ano?: string }>;
 }) {
   const sp = await searchParams;
   const ano = Number(sp.ano) || 2026;
-  const [semanas, cancelados] = await Promise.all([getSemanas(ano), getCancelados(ano)]);
 
-  const comData = semanas.filter((s) => s.convertidos > 0);
-  const semanaSel = Number(sp.semana) || (comData.length ? comData[comData.length - 1].semana : 1);
+  const [finMensal, finTotais, topClientes, modalidade, totais] = await Promise.all([
+    getFinanceiroMensal(ano),
+    getFinanceiroTotais(ano),
+    getTopClientesAno(ano, 10),
+    getModalidade(ano),
+    getDesempenhoTotais(ano),
+  ]);
 
-  const detalhe = await getDetalheSemana(ano, semanaSel);
-  const convertidos = detalhe.filter((r) => !r.is_cancelado);
+  const curr = finMensal.filter((m) => m.ano === ano).sort((a, b) => a.mes - b.mes);
+  const prev = finMensal.filter((m) => m.ano === ano - 1).sort((a, b) => a.mes - b.mes);
+  const tCurr = finTotais.find((t) => t.ano === ano);
+  const tPrev = finTotais.find((t) => t.ano === ano - 1);
 
-  const clientes = new Set(convertidos.map((r) => r.customer_name)).size;
-  const profitPrev = convertidos.reduce((a, r) => a + Number(r.forecast_gross), 0);
+  // Comparações "mesmo período"
+  const mesesCur = new Set(curr.map((r) => r.mes));
+  const sum = (rows: FinanceiroMensal[], metric: (r: FinanceiroMensal) => number, onlySame = false) =>
+    rows.filter((r) => !onlySame || mesesCur.has(r.mes)).reduce((a, r) => a + metric(r), 0);
 
-  const porVendedor = aggregate(convertidos, (r) => r.sales_person, () => 1);
-  const porTipo = aggregate(convertidos, (r) => r.process_type, () => 1);
-  const porCliente = aggregate(convertidos, (r) => r.customer_name, () => 1);
-  const profitVendedor = aggregate(convertidos, (r) => r.sales_person, (r) => Number(r.forecast_gross));
+  const revCur = sum(curr, (r) => Number(r.revenue));
+  const revPrevSame = sum(prev, (r) => Number(r.revenue), true);
+  const procCur = sum(curr, (r) => r.processos);
+  const procPrevSame = sum(prev, (r) => r.processos, true);
+  const ticketCur = procCur > 0 ? revCur / procCur : null;
+  const ticketPrev = procPrevSame > 0 ? revPrevSame / procPrevSame : null;
 
-  // Comparação com a semana anterior (dados já carregados em `semanas`)
-  const semAtual = semanas.find((s) => s.semana === semanaSel);
-  const semAnterior = semanas.find((s) => s.semana === semanaSel - 1);
-  const trendConv = varLabel(Number(semAtual?.convertidos ?? convertidos.length), semAnterior ? Number(semAnterior.convertidos) : undefined);
-  const trendProfit = varLabel(profitPrev, semAnterior ? Number(semAnterior.profit_previsto) : undefined);
+  const vsAnt = `vs ${ano - 1}`;
 
-  // Destaques derivados da própria semana / ano
-  const topVend = porVendedor[0];
-  const topVendProfit = topVend ? profitVendedor.find((p) => p.label === topVend.label) : undefined;
-  const cancPorCliente = aggregate(cancelados, (r) => r.customer_name, () => 1);
-  const topCanc = cancPorCliente[0];
+  // Receita mensal — linha comparativa
+  const revPrevMap = new Map(prev.map((r) => [r.mes, Number(r.revenue)]));
+  const revCurMap = new Map(curr.map((r) => [r.mes, Number(r.revenue)]));
+  const receitaLinha: ComparePoint[] = MESES_CURTO.map((label, i) => ({
+    label,
+    prev: revPrevMap.get(i + 1) ?? null,
+    curr: revCurMap.get(i + 1) ?? null,
+  })).filter((r) => r.prev !== null || r.curr !== null);
 
-  const trend: AreaTrendPoint[] = semanas.map((s) => ({ label: `S${s.semana}`, value: s.convertidos }));
+  // GP2 mensal — barras
+  const gp2Barras: MonthlyBarPoint[] = curr.map((r) => ({
+    label: MESES_CURTO[r.mes - 1],
+    value: Number(r.gp2),
+  }));
+
+  // GP2 por mês — tabela yoy
+  const gp2PrevMap = new Map(prev.map((r) => [r.mes, Number(r.gp2)]));
+  const gp2CurMap = new Map(curr.map((r) => [r.mes, Number(r.gp2)]));
+  const gp2Rows: YoyRow[] = MESES.map((nome, i) => ({
+    label: nome,
+    prev: gp2PrevMap.get(i + 1) ?? null,
+    curr: gp2CurMap.get(i + 1) ?? null,
+  })).filter((r) => r.prev !== null || r.curr !== null);
+
+  // Concentração da carteira: top 5 clientes vs demais (processos)
+  const totalProc = Number(totais?.processos ?? 0);
+  const top5 = topClientes.slice(0, 5);
+  const top5Proc = top5.reduce((a, c) => a + Number(c.processos), 0);
+  const concentracao = [
+    ...top5.map((c) => ({ name: nomeCurto(c.customer_name), value: Number(c.processos) })),
+    ...(totalProc > top5Proc ? [{ name: "Demais Clientes", value: totalProc - top5Proc }] : []),
+  ];
+  const shareTop5 = totalProc > 0 ? (top5Proc / totalProc) * 100 : 0;
+
+  // Mix por modalidade
+  const donutModal = modalidade.slice(0, 6).map((m) => ({ name: m.modalidade, value: Number(m.processos) }));
+  const outrosModal = modalidade.slice(6).reduce((a, m) => a + Number(m.processos), 0);
+  if (outrosModal > 0) donutModal.push({ name: "Demais", value: outrosModal });
+
+  const receitaStats = stats(prev, curr, (r) => Number(r.revenue));
+  const ticketStats = stats(prev, curr, (r) => (r.processos > 0 ? Number(r.revenue) / r.processos : 0));
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5">
       <PageHeader
         title="Comercial"
-        description={`Quantos negócios convertemos e quem puxou o resultado — semana ${semanaSel} de ${ano}`}
+        description="Desempenho comercial, clientes e receita"
       >
         <Segmented
-          scroll
-          className="max-w-[calc(100vw-3rem)] md:max-w-md lg:max-w-xl"
-          items={comData.map((s) => ({
-            label: String(s.semana),
-            href: `/comercial?ano=${ano}&semana=${s.semana}`,
-            active: s.semana === semanaSel,
+          items={[2024, 2025, 2026].map((a) => ({
+            label: String(a),
+            href: `/comercial?ano=${a}`,
+            active: a === ano,
           }))}
         />
       </PageHeader>
 
-      {/* 01 · Resultado da semana */}
+      {/* KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard title="Nº da Semana" value={String(semanaSel)} hint={`Ano ${ano}`} icon={Hash} />
         <KpiCard
-          title="Processos convertidos"
-          value={num.format(convertidos.length)}
-          trend={trendConv}
-          hint={trendConv ? undefined : "Na semana"}
-          icon={Package}
-        />
-        <KpiCard title="Clientes" value={num.format(clientes)} hint="Distintos na semana" icon={Users} />
-        <KpiCard
-          title="Gross Profit Previsto"
-          value={brl.format(profitPrev)}
-          trend={trendProfit}
-          hint={trendProfit ? undefined : "Convertidos da semana"}
-          icon={TrendingUp}
-        />
-      </div>
-
-      {/* Leitura rápida */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {topVend && (
-          <InsightCard
-            kicker="Destaque da semana"
-            icon={Award}
-            title={`${topVend.label} lidera com ${num.format(topVend.value)} conversões`}
-            description={
-              topVendProfit
-                ? `${brl.format(topVendProfit.value)} em profit previsto (${profitPrev > 0 ? pct.format((topVendProfit.value / profitPrev) * 100) : 0}% da semana).`
-                : undefined
-            }
-          />
-        )}
-        {semAnterior && trendConv && (
-          <InsightCard
-            kicker="Ritmo semanal"
-            variant={trendConv.direction === "down" ? "negative" : "positive"}
-            title={`S${semanaSel}: ${num.format(convertidos.length)} × S${semanaSel - 1}: ${num.format(Number(semAnterior.convertidos))}`}
-            description="Conversões da semana selecionada contra a semana imediatamente anterior."
-          />
-        )}
-        {topCanc && (
-          <InsightCard
-            kicker="Atenção · cancelamentos"
-            variant="warning"
-            title={`${topCanc.label}: ${num.format(topCanc.value)} cancelados em ${ano}`}
-            description={`Maior volume de cancelamento do ano (${cancelados.length > 0 ? pct.format((topCanc.value / cancelados.length) * 100) : 0}% do total). Detalhe completo no fim da página.`}
-          />
-        )}
-      </div>
-
-      {/* 02 · Diagnóstico */}
-      <SectionHeader
-        kicker="02 · Diagnóstico"
-        title="Quem puxou o resultado da semana"
-        description="Conversões quebradas por vendedor, tipo de operação e cliente"
-      />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <BarList title="Convertidos por Vendedor" items={porVendedor} />
-        <BarList title="Convertidos por Tipo" items={porTipo} />
-        <BarList title="Convertidos por Cliente" items={porCliente} />
-      </div>
-      <div className="grid gap-4 xl:grid-cols-2">
-        <BarList title="Profit Previsto por Vendedor" items={profitVendedor} currency />
-      </div>
-
-      {/* 03 · Evolução */}
-      <SectionHeader
-        kicker="03 · Evolução"
-        title="Conversões ao longo do ano"
-        description={`Semana a semana em ${ano} — semana começa no domingo (FirstCreatedOn)`}
-      />
-      <Card>
-        <CardContent className="pt-2">
-          <AreaTrend data={trend} name="Convertidos" />
-        </CardContent>
-      </Card>
-
-      {/* 04 · Ofensores */}
-      <SectionHeader
-        kicker="04 · Ofensores"
-        title="Processos Cancelados"
-        description={`Ano ${ano} inteiro — semana pela data de criação (Criado Em)`}
-      />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <KpiCard title="Processos cancelados" value={num.format(cancelados.length)} hint={`Ano ${ano}`} icon={XCircle} />
-        <KpiCard
-          title="Clientes"
-          value={num.format(new Set(cancelados.map((c) => c.customer_name)).size)}
-          hint="Com cancelamento no ano"
+          title={`Clientes ${ano}`}
+          value={tCurr ? num.format(tCurr.clientes) : "—"}
           icon={Users}
+          accent="red"
+          delta={{ value: variacao(tPrev?.clientes, tCurr?.clientes), suffix: vsAnt }}
         />
         <KpiCard
-          title="Máx. semana de criação"
-          value={String(Math.max(0, ...cancelados.map((c) => c.semana_criacao)))}
-          hint="Semana mais recente com cancelamento"
-          icon={Hash}
+          title={`Processos ${ano}`}
+          value={tCurr ? num.format(tCurr.processos) : "—"}
+          icon={Package}
+          accent="dark"
+          delta={{ value: variacao(procPrevSame, procCur), suffix: vsAnt }}
+        />
+        <KpiCard
+          title={`Receita ${ano} (R$)`}
+          value={tCurr ? fmtMi(Number(tCurr.revenue)) : "—"}
+          icon={CircleDollarSign}
+          accent="red"
+          delta={{ value: variacao(revPrevSame, revCur), suffix: vsAnt }}
+        />
+        <KpiCard
+          title={`Ticket Médio ${ano}`}
+          value={ticketCur !== null ? fmtMi(ticketCur) : "—"}
+          icon={Receipt}
+          accent="dark"
+          delta={{ value: variacao(ticketPrev, ticketCur), suffix: vsAnt }}
         />
       </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <BarList title="Cancelados por Vendedor" items={aggregate(cancelados, (r) => r.sales_person, () => 1)} />
-        <BarList title="Cancelados por Tipo" items={aggregate(cancelados, (r) => r.process_type, () => 1)} />
-        <BarList title="Cancelados por Cliente" items={cancPorCliente} />
+
+      {/* Receita mensal + GP2 mensal */}
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Receita Mensal (R$) — {ano} vs {ano - 1}</CardTitle>
+            <CardDescription>Receita da proposta comercial por mês</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CompareLine
+              data={receitaLinha}
+              prevName={String(ano - 1)}
+              currName={String(ano)}
+              showLabels
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">GP2 Mensal {ano}</CardTitle>
+            <CardDescription>Lucro da proposta (R$) por mês</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MonthlyBar data={gp2Barras} name="GP2" />
+          </CardContent>
+        </Card>
       </div>
 
-      {/* 05 · Detalhe */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Cancelados — detalhe operacional</CardTitle>
-          <CardDescription>
-            Os 30 mais recentes de {num.format(cancelados.length)} no ano — para investigar caso a caso
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {cancelados.length === 0 ? (
-            <EmptyState className="h-[160px]" description="Nenhum processo cancelado no ano selecionado." />
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead>Processo</TableHead>
-                  <TableHead>Customer Service</TableHead>
-                  <TableHead>Vendedor</TableHead>
-                  <TableHead>Criado Em</TableHead>
-                  <TableHead>Cliente</TableHead>
-                  <TableHead>Agente</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {cancelados.slice(0, 30).map((c) => (
-                  <TableRow key={c.process_id + c.created_on}>
-                    <TableCell className="font-mono text-xs whitespace-nowrap">{c.process_id}</TableCell>
-                    <TableCell className="whitespace-nowrap">{c.customer_service || "—"}</TableCell>
-                    <TableCell className="whitespace-nowrap">{c.sales_person || "—"}</TableCell>
-                    <TableCell className="whitespace-nowrap tabular-nums">
-                      {new Date(c.created_on).toLocaleDateString("pt-BR")}
-                    </TableCell>
-                    <TableCell className="max-w-[280px] truncate" title={c.customer_name ?? ""}>
-                      {c.customer_name || "—"}
-                    </TableCell>
-                    <TableCell className="max-w-[220px] truncate" title={c.agent_name ?? ""}>
-                      {c.agent_name || "—"}
-                    </TableCell>
+      {/* Top clientes + estatísticas + concentração */}
+      <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr_1fr]">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Top 10 Clientes por Processos {ano}</CardTitle>
+            <CardDescription>Volume e participação na carteira</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {topClientes.length === 0 ? (
+              <EmptyState className="h-[240px]" />
+            ) : (
+              <Table className="text-[13px]">
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="w-8">#</TableHead>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead className="text-right">Processos</TableHead>
+                    <TableHead className="text-right">% do Total</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                </TableHeader>
+                <TableBody>
+                  {topClientes.map((c, i) => (
+                    <TableRow key={c.customer_name}>
+                      <TableCell className="py-1.5">
+                        <span className="bg-primary/10 text-primary flex size-5 items-center justify-center rounded-full text-[10px] font-bold">
+                          {i + 1}
+                        </span>
+                      </TableCell>
+                      <TableCell className="max-w-[260px] truncate py-1.5" title={c.customer_name}>
+                        {nomeCurto(c.customer_name)}
+                      </TableCell>
+                      <TableCell className="py-1.5 text-right tabular-nums">{num.format(Number(c.processos))}</TableCell>
+                      <TableCell className="text-muted-foreground py-1.5 text-right tabular-nums">
+                        {totalProc > 0
+                          ? ((Number(c.processos) / totalProc) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })
+                          : 0}
+                        %
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Receita e Ticket Médio — {ano - 1} vs {ano}</CardTitle>
+            <CardDescription>Total, média e extremos mensais (R$)</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div>
+              <p className="text-muted-foreground mb-1 text-[11px] font-semibold tracking-wide uppercase">
+                Receita (R$)
+              </p>
+              <StatRows
+                rows={[
+                  { label: "Total", ...receitaStats.total },
+                  { label: "Média mensal", ...receitaStats.media },
+                  { label: "Maior mês", ...receitaStats.maior },
+                  { label: "Menor mês", ...receitaStats.menor },
+                ]}
+              />
+            </div>
+            <div>
+              <p className="text-muted-foreground mb-1 text-[11px] font-semibold tracking-wide uppercase">
+                Ticket Médio (R$)
+              </p>
+              <StatRows
+                rows={[
+                  { label: "Ticket médio", prev: ticketPrev, curr: ticketCur },
+                  { label: "Maior ticket", ...ticketStats.maior },
+                  { label: "Menor ticket", ...ticketStats.menor },
+                ]}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Concentração da Carteira — Top 5</CardTitle>
+            <CardDescription>Participação dos maiores clientes (processos)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Donut
+              data={concentracao}
+              centerValue={`${shareTop5.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`}
+              centerLabel="da carteira"
+              colors={["var(--chart-1)", "var(--chart-3)", "var(--chart-2)", "var(--chart-5)", "var(--chart-8)", "var(--chart-4)"]}
+              legend="bottom"
+              size={180}
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Mix por modalidade + GP2 por mês */}
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Mix por Modalidade {ano}</CardTitle>
+            <CardDescription>Participação por volume de processos</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Donut
+              data={donutModal}
+              centerValue={num.format(totalProc)}
+              centerLabel="Processos"
+              size={190}
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">GP2 (R$) por Mês — {ano - 1} vs {ano}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <YoyTable
+              ano={ano}
+              rows={gp2Rows}
+              fmt={(v) => int.format(v)}
+              totalPrev={tPrev ? Number(tPrev.gp2) : null}
+              totalCurr={tCurr ? Number(tCurr.gp2) : null}
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      <p className="text-muted-foreground text-xs">
+        Fonte: Tier2 · Receita = TotalSalesProposal · GP2 = NetProfit da proposta · Ticket Médio =
+        Receita ÷ processos · Variações comparam os mesmos meses de {ano} e {ano - 1} · Exclui
+        cancelados e consolidações (CONS).
+      </p>
     </div>
   );
 }

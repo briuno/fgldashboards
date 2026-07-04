@@ -13,6 +13,7 @@ import {
 
 import { ChartTooltip } from "@/components/charts/chart-tooltip";
 import { EmptyState } from "@/components/dashboard/empty-state";
+import { fmtCompact, fmtMi, int } from "@/lib/format";
 
 export type MonthlyBarPoint = { label: string; value: number };
 
@@ -20,23 +21,19 @@ type MonthlyBarProps = {
   data: MonthlyBarPoint[];
   name?: string;
   height?: number;
+  /** Cor das barras (mockup usa azul para valores R$). */
+  color?: string;
 };
 
-const full = new Intl.NumberFormat("pt-BR", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
-function compact(v: number): string {
-  if (Math.abs(v) >= 1e6) return `${(v / 1e6).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} Mi`;
-  if (Math.abs(v) >= 1e3) return `${(v / 1e3).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} mil`;
-  return v.toLocaleString("pt-BR");
-}
-
-/** Barras mensais com o valor completo no topo (estilo do painel do Power BI). */
-export function MonthlyBar({ data, name = "Valor", height = 320 }: MonthlyBarProps) {
+/** Barras mensais com o valor compacto no topo (ex.: "2,28 Mi") — padrão do mockup. */
+export function MonthlyBar({
+  data,
+  name = "Valor",
+  height = 300,
+  color = "var(--chart-2)",
+}: MonthlyBarProps) {
   if (data.length === 0) {
-    return <EmptyState className="h-[320px]" />;
+    return <EmptyState className="h-[300px]" />;
   }
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -52,20 +49,20 @@ export function MonthlyBar({ data, name = "Valor", height = 320 }: MonthlyBarPro
         <YAxis
           tickLine={false}
           axisLine={false}
-          width={52}
-          tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
-          tickFormatter={(v) => compact(Number(v))}
+          width={44}
+          tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+          tickFormatter={(v) => fmtCompact(Number(v))}
         />
         <Tooltip
           cursor={{ fill: "var(--muted)", opacity: 0.5 }}
-          content={<ChartTooltip valueFormatter={(v) => full.format(v)} />}
+          content={<ChartTooltip valueFormatter={(v) => int.format(v)} />}
         />
-        <Bar dataKey="value" name={name} fill="var(--chart-1)" radius={[3, 3, 0, 0]}>
+        <Bar dataKey="value" name={name} fill={color} radius={[4, 4, 0, 0]} maxBarSize={40}>
           <LabelList
             dataKey="value"
             position="top"
-            formatter={(v) => full.format(Number(v))}
-            style={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+            formatter={(v) => fmtMi(Number(v))}
+            style={{ fill: "var(--foreground)", fontSize: 10, fontWeight: 600 }}
           />
         </Bar>
       </BarChart>

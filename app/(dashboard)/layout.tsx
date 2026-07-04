@@ -23,7 +23,7 @@ export default async function DashboardLayout({
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar email={user.email ?? ""} />
-        <main className="bg-muted/30 flex-1 p-4 md:p-6">{children}</main>
+        <main className="bg-muted/60 flex-1 p-4 md:p-6">{children}</main>
       </div>
     </div>
   );

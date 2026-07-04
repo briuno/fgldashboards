@@ -1,56 +1,59 @@
-import { ArrowDownRight, ArrowUpRight, Minus, type LucideIcon } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
+import { Delta } from "@/components/dashboard/delta";
 import { cn } from "@/lib/utils";
 
 type KpiCardProps = {
   title: string;
   value: string;
-  hint?: string;
   icon?: LucideIcon;
-  /** Variação vs período anterior. `direction` controla cor/seta; default deriva do sinal. */
-  trend?: { label: string; direction?: "up" | "down" | "neutral" };
+  /** Cor do círculo do ícone (padrão alterna vermelho/preto nos mockups). */
+  accent?: "red" | "dark" | "blue" | "muted";
+  /** Variação numérica (%) + sufixo, ex.: { value: -44.17, suffix: "vs 2024" }. */
+  delta?: { value: number | null; suffix?: string; unit?: "%" | "p.p." };
+  /** Texto auxiliar quando não há variação. */
+  hint?: string;
+  className?: string;
 };
 
-function trendStyle(direction: "up" | "down" | "neutral") {
-  switch (direction) {
-    case "up":
-      return { className: "text-emerald-600 dark:text-emerald-400", Icon: ArrowUpRight };
-    case "down":
-      return { className: "text-red-600 dark:text-red-400", Icon: ArrowDownRight };
-    default:
-      return { className: "text-muted-foreground", Icon: Minus };
-  }
-}
+const ACCENTS: Record<NonNullable<KpiCardProps["accent"]>, string> = {
+  red: "bg-primary text-primary-foreground",
+  dark: "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900",
+  blue: "bg-chart-2 text-white",
+  muted: "bg-muted text-foreground",
+};
 
-export function KpiCard({ title, value, hint, icon: Icon, trend }: KpiCardProps) {
-  const direction =
-    trend?.direction ?? (trend?.label.trim().startsWith("-") ? "down" : "up");
-  const t = trend ? trendStyle(direction) : null;
-
+/** Card de KPI no padrão FGL: ícone circular à esquerda, rótulo maiúsculo, valor e variação. */
+export function KpiCard({ title, value, icon: Icon, accent = "red", delta, hint, className }: KpiCardProps) {
   return (
-    <Card className="gap-0 py-5">
-      <CardContent className="flex items-start justify-between gap-3 px-5">
-        <div className="min-w-0">
-          <p className="text-muted-foreground text-[13px] font-medium">{title}</p>
-          <p className="mt-1.5 truncate text-2xl font-semibold tracking-tight tabular-nums">
-            {value || "—"}
-          </p>
-          <div className="mt-1.5 flex items-baseline gap-2">
-            {trend && t && (
-              <span className={cn("inline-flex items-center gap-0.5 text-xs font-medium", t.className)}>
-                <t.Icon className="size-3.5" />
-                {trend.label}
-              </span>
-            )}
-            {hint && <span className="text-muted-foreground truncate text-xs">{hint}</span>}
-          </div>
-        </div>
+    <Card className={cn("py-5", className)}>
+      <CardContent className="flex items-center gap-4 px-5">
         {Icon && (
-          <div className="bg-primary/8 text-primary flex size-9 shrink-0 items-center justify-center rounded-lg">
-            <Icon className="size-4" />
+          <div
+            className={cn(
+              "flex size-13 shrink-0 items-center justify-center rounded-full",
+              ACCENTS[accent],
+            )}
+          >
+            <Icon className="size-5.5" strokeWidth={2} />
           </div>
         )}
+        <div className="min-w-0 flex-1">
+          <p className="text-muted-foreground truncate text-[11px] font-semibold tracking-wide uppercase">
+            {title}
+          </p>
+          <p className="mt-0.5 truncate text-[26px] leading-tight font-bold tracking-tight tabular-nums">
+            {value || "—"}
+          </p>
+          <div className="mt-0.5 flex min-h-4 items-center">
+            {delta ? (
+              <Delta value={delta.value} suffix={delta.suffix} unit={delta.unit} />
+            ) : (
+              hint && <span className="text-muted-foreground truncate text-xs">{hint}</span>
+            )}
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
