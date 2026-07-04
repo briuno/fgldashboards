@@ -44,6 +44,8 @@ Puxa dados do ERP **Tier2 Cargo** (API REST/Swagger), guarda no **Supabase**
 - `.env` (git-ignored) — lido só por **scripts de operação locais** (não pelo app):
   `SUPABASE_ACCESS_TOKEN` (PAT p/ Management API) e `SUPABASE_PROJECT_REF`.
 - `.env.example` (versionado) — modelo dos dois acima, sem valores.
+- `.mcp.json` (git-ignored) — servers MCP locais (Supabase + Hostinger, com token da API
+  Hostinger embutido). Modelo versionado: `.mcp.json.example`.
 - Projeto Supabase: `ifjpzyqjdagnxygbkwpm`. URL: `https://ifjpzyqjdagnxygbkwpm.supabase.co`.
 - Segredos do Tier2 (NÃO commitar): `TIER2_BASE_URL`, `TIER2_USERNAME`, `TIER2_PASSWORD`
   vão como **Supabase secrets** (`supabase secrets set`) para as Edge Functions.

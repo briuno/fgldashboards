@@ -1,0 +1,43 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref=ifjpzyqjdagnxygbkwpm"
+    },
+    "hostinger-hosting": {
+      "command": "npx.cmd",
+      "args": ["--package=hostinger-api-mcp@latest", "hostinger-hosting-mcp"],
+      "env": { "HOSTINGER_API_TOKEN": "cole_aqui_o_token_da_hostinger" }
+    },
+    "hostinger-domains": {
+      "command": "npx.cmd",
+      "args": ["--package=hostinger-api-mcp@latest", "hostinger-domains-mcp"],
+      "env": { "HOSTINGER_API_TOKEN": "cole_aqui_o_token_da_hostinger" }
+    },
+    "hostinger-dns": {
+      "command": "npx.cmd",
+      "args": ["--package=hostinger-api-mcp@latest", "hostinger-dns-mcp"],
+      "env": { "HOSTINGER_API_TOKEN": "cole_aqui_o_token_da_hostinger" }
+    },
+    "hostinger-billing": {
+      "command": "npx.cmd",
+      "args": ["--package=hostinger-api-mcp@latest", "hostinger-billing-mcp"],
+      "env": { "HOSTINGER_API_TOKEN": "cole_aqui_o_token_da_hostinger" }
+    },
+    "hostinger-reach": {
+      "command": "npx.cmd",
+      "args": ["--package=hostinger-api-mcp@latest", "hostinger-reach-mcp"],
+      "env": { "HOSTINGER_API_TOKEN": "cole_aqui_o_token_da_hostinger" }
+    },
+    "hostinger-vps": {
+      "command": "npx.cmd",
+      "args": ["--package=hostinger-api-mcp@latest", "hostinger-vps-mcp"],
+      "env": { "HOSTINGER_API_TOKEN": "cole_aqui_o_token_da_hostinger" }
+    },
+    "hostinger-ecommerce": {
+      "command": "npx.cmd",
+      "args": ["--package=hostinger-api-mcp@latest", "hostinger-ecommerce-mcp"],
+      "env": { "HOSTINGER_API_TOKEN": "cole_aqui_o_token_da_hostinger" }
+    }
+  }
+}

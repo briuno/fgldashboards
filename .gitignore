@@ -34,6 +34,9 @@ yarn-error.log*
 .env*
 !.env.example
 
+# MCP local (contém tokens de API) — modelo versionado: .mcp.json.example
+.mcp.json
+
 # vercel
 .vercel
 
