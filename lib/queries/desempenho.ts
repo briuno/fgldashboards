@@ -98,3 +98,82 @@ export async function getAgenteMensal(ano: number, agentes: string[]): Promise<A
   }
   return (data ?? []) as AgenteMensalRow[];
 }
+
+// ── Desempenho filtrado por modalidade (sub-abas: Impo/Expo Marítimo/Aéreo, Rodoviário) ──
+
+export type ModalTotais = {
+  ano: number;
+  modalidade: string;
+  processos: number;
+  clientes: number;
+  teu: number;
+  gp2: number;
+};
+
+export async function getModalTotais(ano: number, modalidade: string): Promise<ModalTotais | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .schema("mart").from("desempenho_totais_modal").select("*")
+    .eq("ano", ano).eq("modalidade", modalidade).maybeSingle();
+  if (error) {
+    console.error("[desempenho] modal_totais:", error.message);
+    return null;
+  }
+  return data as ModalTotais | null;
+}
+
+/** Mensal (processos/teu) de {ano-1, ano} para uma modalidade. */
+export async function getModalMensal(ano: number, modalidade: string): Promise<MensalRow[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .schema("mart").from("desempenho_mensal_modal")
+    .select("ano, mes, processos, teu")
+    .eq("modalidade", modalidade).in("ano", [ano - 1, ano]).order("ano").order("mes");
+  if (error) {
+    console.error("[desempenho] modal_mensal:", error.message);
+    return [];
+  }
+  return (data ?? []) as MensalRow[];
+}
+
+export async function getModalAgentes(ano: number, modalidade: string, limit = 15): Promise<AgenteRow[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .schema("mart").from("desempenho_agente_modal")
+    .select("ano, agent_name, processos, gp2, ticket_medio")
+    .eq("ano", ano).eq("modalidade", modalidade)
+    .order("processos", { ascending: false }).limit(limit);
+  if (error) {
+    console.error("[desempenho] modal_agente:", error.message);
+    return [];
+  }
+  return (data ?? []) as AgenteRow[];
+}
+
+export async function getModalClientes(ano: number, modalidade: string, limit = 12): Promise<ClienteRow[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .schema("mart").from("desempenho_cliente_modal")
+    .select("ano, customer_name, processos")
+    .eq("ano", ano).eq("modalidade", modalidade)
+    .order("processos", { ascending: false }).limit(limit);
+  if (error) {
+    console.error("[desempenho] modal_cliente:", error.message);
+    return [];
+  }
+  return (data ?? []) as ClienteRow[];
+}
+
+export async function getModalAgenteMensal(ano: number, modalidade: string, agentes: string[]): Promise<AgenteMensalRow[]> {
+  if (agentes.length === 0) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .schema("mart").from("desempenho_agente_mensal_modal")
+    .select("ano, mes, agent_name, processos")
+    .eq("ano", ano).eq("modalidade", modalidade).in("agent_name", agentes).order("mes");
+  if (error) {
+    console.error("[desempenho] modal_agente_mensal:", error.message);
+    return [];
+  }
+  return (data ?? []) as AgenteMensalRow[];
+}
