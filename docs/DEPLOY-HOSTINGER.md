@@ -29,13 +29,14 @@ hospedagem de arquivos estáticos.
 
 ## O que funciona já no 1º deploy
 - Tela de **login** e navegação completa do dashboard (menu, telas).
-- A **Visão Executiva** mostra a prévia com dados de exemplo.
-- Para testar o login: crie um usuário no Supabase → **Authentication → Users → Add user**.
+- **Visão Executiva, Comercial, Desempenho e Financeiro** com **dados reais** do Tier2
+  (via views do `mart`) — a tela **Processos** ainda é placeholder.
+- Para dar acesso a um gestor: crie o usuário no Supabase → **Authentication → Users → Add user**.
 
-## Para os dados reais (M1 — depois)
-1. **Migrations** no Supabase — já aplicadas no M0 (fonte: `supabase/migrations/`).
-2. Conectar o **Tier2** (Edge Function `tier2-introspect`) e a sincronização diária.
-3. Ligar a Visão Executiva aos dados reais.
+## Pipeline de dados (já ativo)
+- **Migrations** aplicadas no Supabase (fonte: `supabase/migrations/`).
+- **Sincronização diária** do Tier2 pela Edge Function `tier2-sync` (backfill mês-a-mês +
+  delta), agendada por pg_cron. `tier2-introspect` serve para inspecionar o schema da API.
 
 ## Dicas
 - Se o build reclamar de versão do Node, fixe **Node 20/22** nas configurações do app.

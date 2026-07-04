@@ -16,8 +16,9 @@ Puxa dados do ERP **Tier2 Cargo** (API REST/Swagger), guarda no **Supabase**
   bloqueado pela rede — ver abaixo). Gráficos com **Recharts** (`components/charts`).
 - Auth/DB: Supabase (`@supabase/ssr`) — clients em `lib/supabase/`.
 - Ingestão: Supabase **Edge Functions** (Deno) em `supabase/functions/`, agendadas
-  por pg_cron (M1+). Migrations em `supabase/migrations/`.
-- Deploy do app: Vercel.
+  por pg_cron. Migrations em `supabase/migrations/`.
+- Deploy do app: **Hostinger** (plano Business → app Node.js, auto-deploy via GitHub).
+  Por isso `next.config.ts` usa `output: "standalone"`. Guia: `docs/DEPLOY-HOSTINGER.md`.
 
 ## Arquitetura de dados (camadas / schemas Postgres)
 `raw` (JSON bruto do Tier2) → `core` (star schema: dims + facts) →
@@ -38,8 +39,11 @@ Puxa dados do ERP **Tier2 Cargo** (API REST/Swagger), guarda no **Supabase**
 - O **Supabase MCP** exige aprovação a cada chamada (aplicar migrations, pegar chaves,
   deploy de função) — precisa ser destravado pelo usuário para operações "ao vivo".
 
-## Configuração / segredos
-- `.env.local` (git-ignored): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+- `.env.local` (git-ignored) — lido pelo **app** Next.js: `NEXT_PUBLIC_SUPABASE_URL`,
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY` (valores públicos, protegidos por RLS).
+- `.env` (git-ignored) — lido só por **scripts de operação locais** (não pelo app):
+  `SUPABASE_ACCESS_TOKEN` (PAT p/ Management API) e `SUPABASE_PROJECT_REF`.
+- `.env.example` (versionado) — modelo dos dois acima, sem valores.
 - Projeto Supabase: `ifjpzyqjdagnxygbkwpm`. URL: `https://ifjpzyqjdagnxygbkwpm.supabase.co`.
 - Segredos do Tier2 (NÃO commitar): `TIER2_BASE_URL`, `TIER2_USERNAME`, `TIER2_PASSWORD`
   vão como **Supabase secrets** (`supabase secrets set`) para as Edge Functions.
