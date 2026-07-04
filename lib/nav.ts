@@ -4,6 +4,7 @@ import {
   Gauge,
   Wallet,
   ListChecks,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -44,5 +45,11 @@ export const navItems: NavItem[] = [
     label: "Processos",
     icon: ListChecks,
     description: "Lista detalhada de processos",
+  },
+  {
+    href: "/auditoria",
+    label: "Auditoria",
+    icon: ShieldCheck,
+    description: "Saúde da sincronização com o Tier2",
   },
 ];

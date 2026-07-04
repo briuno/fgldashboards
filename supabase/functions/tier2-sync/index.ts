@@ -117,16 +117,17 @@ async function recoverByFilter(sql: Sql, token: string, filter: string, orderby:
   return { got, lost, nextSkip: skip };
 }
 
-async function processMonthFast(sql: Sql, token: string, ym: string): Promise<void> {
+async function processMonthFast(sql: Sql, token: string, ym: string): Promise<number> {
   // Página 50: os campos de forecast são computados e pesam a 150 (conexão cai).
-  let skip = 0;
+  let skip = 0, got = 0;
   for (;;) {
     const rows = await fetchByFilter(token, monthFilter(ym), skip, 50, "ProcessDate asc");
     if (rows.length === 0) break;
     await upsert(sql, rows);
-    skip += rows.length;
+    skip += rows.length; got += rows.length;
     if (rows.length < 50) break;
   }
+  return got;
 }
 
 async function updateHwm(sql: Sql): Promise<void> {
@@ -141,6 +142,23 @@ Deno.serve(async (req) => {
   const params = new URL(req.url).searchParams;
   const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { prepare: false });
   const log: Record<string, unknown> = {};
+
+  // Auditoria: uma linha por execução em etl.sync_log (running → success/error).
+  const entity = params.get("proposal") ? "ShipmentProfitProposalView" : "ShipmentProcessView";
+  let mode = params.get("proposal") ? "proposal"
+    : params.get("nulldate") ? "nulldate"
+    : params.get("months") ? "months"
+    : "auto"; // backfill|delta definido em tempo de execução
+  // rows_upserted conta linhas PROCESSADAS no upsert (não só as alteradas); rows_lost = linhas que o Tier2 nega (502).
+  let rowsUpserted = 0, rowsLost = 0;
+  let logId: number | null = null;
+  try {
+    const r = await sql`insert into etl.sync_log (entity, mode, status) values (${entity}, ${mode}, 'running') returning id`;
+    logId = (r[0]?.id as number) ?? null;
+  } catch (e) {
+    console.error("sync_log insert:", String((e as Error).message));
+  }
+
   try {
     const token = await auth();
 
@@ -150,18 +168,24 @@ Deno.serve(async (req) => {
       const size = Number(params.get("size") ?? 40);
       const year = params.get("year");
       const filter = year ? `contains(ProcessId,'-${year}')` : "";
-      log.proposal = await recoverByFilter(sql, token, filter, "ProcessId asc", size, started, startSkip, PROPOSAL_SELECT, "ShipmentProfitProposalView");
+      const res = await recoverByFilter(sql, token, filter, "ProcessId asc", size, started, startSkip, PROPOSAL_SELECT, "ShipmentProfitProposalView");
+      rowsUpserted += res.got; rowsLost += res.lost;
+      log.proposal = res;
       log.proposalCount = (await sql`select count(*)::int n from raw.shipment_profit_proposal`)[0].n;
     } else if (params.get("nulldate")) {
       const startSkip = Number(params.get("skip") ?? 0);
-      log.nulldate = await recoverByFilter(sql, token, "ProcessDate eq null", "ProcessID asc", 150, started, startSkip);
+      const res = await recoverByFilter(sql, token, "ProcessDate eq null", "ProcessID asc", 150, started, startSkip);
+      rowsUpserted += res.got; rowsLost += res.lost;
+      log.nulldate = res;
     } else if (params.get("months")) {
       // ?profit=1 inclui o lucro realizado (faturas) — campos pesados, mas ok em páginas de 40
       const select = params.get("profit") ? PROFIT_SELECT : SELECT;
       const results: Record<string, unknown>[] = [];
       for (const ym of params.get("months")!.split(",").map((s) => s.trim()).filter(Boolean)) {
         if (Date.now() - started > BUDGET_MS) { log.timeBudget = true; break; }
-        results.push({ month: ym, ...(await recoverByFilter(sql, token, monthFilter(ym), "ProcessID asc", 40, started, 0, select)) });
+        const res = await recoverByFilter(sql, token, monthFilter(ym), "ProcessID asc", 40, started, 0, select);
+        rowsUpserted += res.got; rowsLost += res.lost;
+        results.push({ month: ym, ...res });
       }
       log.recovered = results;
     } else {
@@ -178,10 +202,11 @@ Deno.serve(async (req) => {
 
       if (cursor <= STOP_MONTH) {
         // ---- BACKFILL ----
+        mode = "backfill";
         const failed: { month: string; error: string }[] = [];
         let monthsDone = 0, consec = 0;
         while (Date.now() - started < BUDGET_MS && cursor <= STOP_MONTH) {
-          try { await processMonthFast(sql, token, cursor); monthsDone++; consec = 0; }
+          try { rowsUpserted += await processMonthFast(sql, token, cursor); monthsDone++; consec = 0; }
           catch (e) { failed.push({ month: cursor, error: String((e as Error).message).slice(0, 100) }); if (++consec >= 25) { log.systemic = true; break; } }
           cursor = nextMonth(cursor);
           await sql`update etl.sync_state set delta_cursor=${cursor}, updated_at=now() where entity='ShipmentProcessView'`;
@@ -190,7 +215,9 @@ Deno.serve(async (req) => {
         log.mode = "backfill"; log.monthsDone = monthsDone; log.failedMonths = failed; log.cursor = cursor;
       } else {
         // ---- DELTA (diário): linhas atualizadas desde o high-water-mark ----
+        mode = "delta";
         const r = await recoverByFilter(sql, token, `ShipmentUpdateOn ge ${st.hwm_lit}`, "ProcessID asc", 150, started);
+        rowsUpserted += r.got; rowsLost += r.lost;
         await updateHwm(sql);
         log.mode = "delta"; log.since = st.hwm_lit; log.delta = r;
       }
@@ -202,6 +229,23 @@ Deno.serve(async (req) => {
   } catch (e) {
     log.ok = false; log.error = String((e as Error).message);
   } finally {
+    // Fecha a auditoria — isolado: falha ao logar nunca aborta a ingestão.
+    try {
+      if (logId !== null) {
+        await sql`update etl.sync_log set
+                    finished_at   = now(),
+                    status        = ${log.ok ? "success" : "error"},
+                    mode          = ${mode},
+                    rows_upserted = ${rowsUpserted},
+                    rows_lost     = ${rowsLost},
+                    http_status   = ${log.ok ? 200 : null},
+                    error         = ${log.ok ? null : String(log.error ?? "").slice(0, 500)},
+                    details       = ${sql.json(log)}
+                  where id = ${logId}`;
+      }
+    } catch (e) {
+      console.error("sync_log update:", String((e as Error).message));
+    }
     await sql.end();
   }
   return new Response(JSON.stringify(log, null, 2), { headers: { "content-type": "application/json; charset=utf-8" } });
