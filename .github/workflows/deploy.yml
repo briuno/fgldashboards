@@ -1,0 +1,46 @@
+name: Deploy → Hostinger (data.octopushub.tech)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: hostinger-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Chaves PÚBLICAS do Supabase (protegidas por RLS), necessárias no build.
+      - name: Gerar .env.production
+        run: |
+          {
+            echo "NEXT_PUBLIC_SUPABASE_URL=https://ifjpzyqjdagnxygbkwpm.supabase.co"
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}"
+          } > .env.production
+
+      # Portão de qualidade: só publica se lint + build passarem.
+      - name: Instalar e validar
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+
+      # Empacota só o código-fonte (a Hostinger reconstrói no servidor).
+      - name: Empacotar
+        run: zip -r app.zip . -x ".git/*" "node_modules/*" ".next/*" "app.zip"
+
+      - name: Publicar na Hostinger
+        env:
+          HOSTINGER_API_TOKEN: ${{ secrets.HOSTINGER_API_TOKEN }}
+          DOMAIN: data.octopushub.tech
+        run: node scripts/hostinger-deploy.mjs app.zip
