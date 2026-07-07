@@ -103,7 +103,7 @@ export default async function ComercialSemanalPage({
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5">
       <PageHeader title="Comercial · Semanal" description={`Conversões e cancelamentos — semana ${semanaSel} de ${ano}`}>
         <Segmented
-          items={[2024, 2025, 2026].map((a) => ({ label: String(a), href: `/comercial/semanal?ano=${a}`, active: a === ano }))}
+          items={[2022, 2023, 2024, 2025, 2026].map((a) => ({ label: String(a), href: `/comercial/semanal?ano=${a}`, active: a === ano }))}
         />
       </PageHeader>
 

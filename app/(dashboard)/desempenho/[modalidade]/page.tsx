@@ -105,7 +105,7 @@ export default async function DesempenhoModalidadePage({
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5">
       <PageHeader title={`Desempenho · ${mod.label}`} description="Performance operacional e de agentes da modalidade">
         <Segmented
-          items={[2024, 2025, 2026].map((a) => ({
+          items={[2022, 2023, 2024, 2025, 2026].map((a) => ({
             label: String(a),
             href: `/desempenho/${mod.slug}?ano=${a}`,
             active: a === ano,

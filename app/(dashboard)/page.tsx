@@ -128,7 +128,7 @@ export default async function VisaoExecutivaPage({
         description="Resumo geral de performance e resultados"
       >
         <Segmented
-          items={[2024, 2025, 2026].map((a) => ({
+          items={[2022, 2023, 2024, 2025, 2026].map((a) => ({
             label: String(a),
             href: `/?ano=${a}`,
             active: a === ano,

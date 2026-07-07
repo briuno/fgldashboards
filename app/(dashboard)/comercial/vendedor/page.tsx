@@ -43,7 +43,7 @@ export default async function ComercialVendedorPage({
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5">
       <PageHeader title="Comercial · Vendedor" description="Receita e lucro previsto por vendedor">
         <Segmented
-          items={[2024, 2025, 2026].map((a) => ({
+          items={[2022, 2023, 2024, 2025, 2026].map((a) => ({
             label: String(a),
             href: `/comercial/vendedor?ano=${a}`,
             active: a === ano,

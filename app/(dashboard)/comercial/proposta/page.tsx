@@ -147,7 +147,7 @@ export default async function ComercialPropostaPage({
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5">
       <PageHeader title="Comercial · Proposta" description="Receita e lucro previsto pela proposta comercial">
         <Segmented
-          items={[2024, 2025, 2026].map((a) => ({
+          items={[2022, 2023, 2024, 2025, 2026].map((a) => ({
             label: String(a),
             href: `/comercial/proposta?ano=${a}`,
             active: a === ano,

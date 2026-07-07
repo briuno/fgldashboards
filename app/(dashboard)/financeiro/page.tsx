@@ -181,7 +181,7 @@ export default async function FinanceiroPage({
           </span>
           <FilterSelect param="cliente" value={cliente} placeholder="Cliente: Todos" options={clientes.map((c) => c.nome)} />
           <FilterSelect param="tipo" value={tipo} placeholder="Modalidade: Todas" options={tipos.map((t) => t.nome)} />
-          <Segmented items={[2025, 2026].map((a) => ({ label: String(a), href: yearHref(a), active: a === ano }))} />
+          <Segmented items={[2022, 2023, 2024, 2025, 2026].map((a) => ({ label: String(a), href: yearHref(a), active: a === ano }))} />
         </div>
       </PageHeader>
 
