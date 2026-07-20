@@ -62,6 +62,9 @@ export function CompareLine({
           axisLine={false}
           tickMargin={8}
           tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
+          // Com rótulos ligados, o 1º ponto encosta no eixo Y e o número colava na
+          // marca da escala ("120105"). O padding afasta as pontas da série.
+          padding={showLabels ? { left: 14, right: 14 } : undefined}
         />
         <YAxis
           tickLine={false}

@@ -32,6 +32,7 @@ import {
   getModalClientes,
   getModalMensal,
   getModalTotais,
+  getModalTotaisPeriodo,
 } from "@/lib/queries/desempenho";
 
 export function generateStaticParams() {
@@ -52,16 +53,12 @@ export default async function DesempenhoModalidadePage({
   const sp = await searchParams;
   const ano = Number(sp.ano) || 2026;
 
-  const [totais, totaisPrev, mensal, agentes, clientes] = await Promise.all([
+  const [totais, mensal, agentes, clientes] = await Promise.all([
     getModalTotais(ano, mod.db),
-    getModalTotais(ano - 1, mod.db),
     getModalMensal(ano, mod.db),
     getModalAgentes(ano, mod.db, 12),
     getModalClientes(ano, mod.db, 12),
   ]);
-
-  const top3 = agentes.slice(0, 3).map((a) => a.agent_name);
-  const agenteMensal = await getModalAgenteMensal(ano, mod.db, top3);
 
   // Evolução mensal (processos) — linha 2 anos
   const procPrev = new Map(mensal.filter((r) => r.ano === ano - 1).map((r) => [r.mes, Number(r.processos)]));
@@ -72,11 +69,17 @@ export default async function DesempenhoModalidadePage({
     curr: procCur.get(i + 1) ?? null,
   })).filter((r) => r.prev !== null || r.curr !== null);
 
-  // Variação "mesmo período" de processos
-  const mesesCur = new Set([...procCur.keys()]);
-  const somaCur = [...procCur.values()].reduce((a, b) => a + b, 0);
-  const somaPrevSame = [...procPrev.entries()].filter(([m]) => mesesCur.has(m)).reduce((a, [, v]) => a + v, 0);
-  const varProc = variacao(somaPrevSame, somaCur);
+  // Todas as comparações usam a MESMA janela de meses (o rodapé promete isso). O ano
+  // anterior é somado só até o último mês que o ano corrente tem — senão 12 meses de
+  // 2025 contra 9 de 2026 dariam uma variação falsa, diferente da do card do topo.
+  const ateMes = procCur.size > 0 ? Math.max(...procCur.keys()) : 12;
+  const anoIncompleto = ateMes < 12;
+
+  const [totaisPrev, agenteMensal] = await Promise.all([
+    getModalTotaisPeriodo(ano - 1, mod.db, ateMes),
+    getModalAgenteMensal(ano, mod.db, agentes.slice(0, 3).map((a) => a.agent_name)),
+  ]);
+  const top3 = agentes.slice(0, 3).map((a) => a.agent_name);
 
   // Tabelas comparativas processos / TEU
   const teuPrev = new Map(mensal.filter((r) => r.ano === ano - 1).map((r) => [r.mes, Number(r.teu)]));
@@ -86,6 +89,14 @@ export default async function DesempenhoModalidadePage({
       (r) => r.prev !== null || r.curr !== null,
     );
   const sumVals = (m: Map<number, number>) => [...m.values()].reduce((a, b) => a + b, 0);
+  /** Soma do ano anterior restrita aos meses presentes no ano corrente. */
+  const sumSame = (p: Map<number, number>) =>
+    [...p.entries()].filter(([m]) => m <= ateMes).reduce((a, [, v]) => a + v, 0);
+
+  // Sem nenhum mês no ano corrente (modalidade parada), todos os cards mostram "—".
+  // Antes, Processos exibia -100% enquanto os outros três exibiam "—" no mesmo estado.
+  const semDadosNoAno = procCur.size === 0;
+  const varProc = semDadosNoAno ? null : variacao(sumSame(procPrev), sumVals(procCur));
 
   // Top 3 agentes mensal (linha)
   const shortName = (n: string) => (n.length > 22 ? n.slice(0, 22) + "…" : n);
@@ -140,7 +151,7 @@ export default async function DesempenhoModalidadePage({
           value={fmtMi(Number(totais?.gp2 ?? 0))}
           icon={TrendingUp}
           accent="dark"
-          hint="Lucro realizado (faturas)"
+          delta={{ value: variacao(totaisPrev?.gp2, totais?.gp2), suffix: vsAnt }}
         />
       </div>
 
@@ -169,8 +180,9 @@ export default async function DesempenhoModalidadePage({
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
+      {/* Tabela em largura total: 5 colunas em meia largura cortavam "Ticket Médio". */}
+      <div className="grid gap-4">
+        <Card className="min-w-0">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Top 10 Agentes por GP2</CardTitle>
             <CardDescription>Lucro realizado e ticket médio — {mod.label}</CardDescription>
@@ -224,7 +236,9 @@ export default async function DesempenhoModalidadePage({
         </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {/* 3 colunas só em xl: as duas tabelas YoY têm 4 colunas e, a 246px (lg), rolavam
+          na horizontal. Em lg ficam 2 por linha, com ~376px cada. */}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Comparativo Top 3 Agentes — Processos por Mês</CardTitle>
@@ -239,7 +253,13 @@ export default async function DesempenhoModalidadePage({
             <CardTitle className="text-base">Processos por Mês</CardTitle>
           </CardHeader>
           <CardContent>
-            <YoyTable ano={ano} rows={toRows(procPrev, procCur)} totalPrev={sumVals(procPrev)} totalCurr={sumVals(procCur)} />
+            <YoyTable
+              ano={ano}
+              rows={toRows(procPrev, procCur)}
+              totalPrev={sumSame(procPrev)}
+              totalCurr={sumVals(procCur)}
+              totalLabel={anoIncompleto ? "Total (mesmo período)" : "Total"}
+            />
           </CardContent>
         </Card>
         <Card>
@@ -247,7 +267,13 @@ export default async function DesempenhoModalidadePage({
             <CardTitle className="text-base">TEU&apos;s por Mês</CardTitle>
           </CardHeader>
           <CardContent>
-            <YoyTable ano={ano} rows={toRows(teuPrev, teuCur)} totalPrev={sumVals(teuPrev)} totalCurr={sumVals(teuCur)} />
+            <YoyTable
+              ano={ano}
+              rows={toRows(teuPrev, teuCur)}
+              totalPrev={sumSame(teuPrev)}
+              totalCurr={sumVals(teuCur)}
+              totalLabel={anoIncompleto ? "Total (mesmo período)" : "Total"}
+            />
           </CardContent>
         </Card>
       </div>

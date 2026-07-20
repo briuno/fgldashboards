@@ -122,6 +122,31 @@ export async function getModalTotais(ano: number, modalidade: string): Promise<M
   return data as ModalTotais | null;
 }
 
+/**
+ * Totais até um mês de corte — use para o ano anterior, com o último mês que o ano
+ * corrente tem. Sem isso o comparativo soma 12 meses contra 9 e a variação mente.
+ * `clientes` é distinct, então não dá para somar mês a mês no app.
+ */
+export async function getModalTotaisPeriodo(
+  ano: number,
+  modalidade: string,
+  ateMes: number,
+): Promise<ModalTotais | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .schema("mart").rpc("desempenho_totais_periodo", {
+      p_ano: ano,
+      p_modalidade: modalidade,
+      p_ate_mes: ateMes,
+    });
+  if (error) {
+    console.error("[desempenho] totais_periodo:", error.message);
+    return null;
+  }
+  const row = (data ?? [])[0];
+  return row ? ({ ...row, modalidade } as ModalTotais) : null;
+}
+
 /** Mensal (processos/teu) de {ano-1, ano} para uma modalidade. */
 export async function getModalMensal(ano: number, modalidade: string): Promise<MensalRow[]> {
   const supabase = await createClient();
