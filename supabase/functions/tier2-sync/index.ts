@@ -52,7 +52,19 @@ function monthFilter(ym: string): string {
 const TABLES: Record<string, string> = {
   ShipmentProcessView: "shipment_process",
   ShipmentProfitProposalView: "shipment_profit_proposal",
+  ProposalProcessView: "proposal_process",
 };
+
+// PROPOSTA COMERCIAL de verdade (cotação PROP-*), ≠ ShipmentProfitProposalView (= provisão).
+// Tem CreatedOn, então janela mês a mês como a ShipmentProcessView.
+const PROPOSTA_SELECT =
+  "Oid,ProposalID,Status,StatusID,ProposalType,ModalityID,CreatedOn,StatusDate,ValidUntil,ProposalUpdateOn," +
+  "ProposalVersionQty,TotalSales,SalesMargin,ForecastNetProfit,ForecastGrossProfit," +
+  "CustomerOID,CustomerName,SalesPerson,InsideSales,Pricing,AgentName,OriginName,DestinationName";
+
+function propostaMonthFilter(ym: string): string {
+  return `CreatedOn ge ${ym}-01T00:00:00-03:00 and CreatedOn lt ${nextMonth(ym)}-01T00:00:00-03:00`;
+}
 
 async function fetchByFilter(token: string, filter: string, skip: number, size: number, orderby: string, select: string = SELECT, entity = "ShipmentProcessView"): Promise<Row[]> {
   const url =
@@ -144,8 +156,11 @@ Deno.serve(async (req) => {
   const log: Record<string, unknown> = {};
 
   // Auditoria: uma linha por execução em etl.sync_log (running → success/error).
-  const entity = params.get("proposal") ? "ShipmentProfitProposalView" : "ShipmentProcessView";
-  let mode = params.get("proposal") ? "proposal"
+  const entity = params.get("propostas") ? "ProposalProcessView"
+    : params.get("proposal") ? "ShipmentProfitProposalView"
+    : "ShipmentProcessView";
+  let mode = params.get("propostas") ? (params.get("delta") ? "propostas-delta" : "propostas")
+    : params.get("proposal") ? "proposal"
     : params.get("nulldate") ? "nulldate"
     : params.get("months") ? "months"
     : "auto"; // backfill|delta definido em tempo de execução
@@ -162,7 +177,51 @@ Deno.serve(async (req) => {
   try {
     const token = await auth();
 
-    if (params.get("proposal")) {
+    // ?peek=Entidade&top=&select=&filter=&order= — amostra CRUA, sem gravar nada.
+    // Só para investigar o modelo de dados do Tier2 daqui (o sandbox não alcança a API).
+    if (params.get("peek")) {
+      const ent = params.get("peek")!;
+      const qs = new URLSearchParams();
+      qs.set("$top", params.get("top") ?? "3");
+      if (params.get("select")) qs.set("$select", params.get("select")!);
+      if (params.get("filter")) qs.set("$filter", params.get("filter")!);
+      if (params.get("order")) qs.set("$orderby", params.get("order")!);
+      if (params.get("skip")) qs.set("$skip", params.get("skip")!);
+      const res = await fetch(`${BASE}/api/odata/${ent}?${qs}`, {
+        headers: { accept: "application/json", authorization: `Bearer ${token}` },
+      });
+      const body = res.ok ? await res.json() : await res.text();
+      const cnt = await fetch(`${BASE}/api/odata/${ent}/$count`, {
+        headers: { authorization: `Bearer ${token}` },
+      }).then((r) => (r.ok ? r.text() : "?")).catch(() => "?");
+      await sql.end();
+      return new Response(JSON.stringify({ entity: ent, status: res.status, count: cnt, body }, null, 2), {
+        headers: { "content-type": "application/json; charset=utf-8" },
+      });
+    }
+
+    if (params.get("propostas")) {
+      // ?propostas=1&months=YYYY-MM,… → propostas comerciais (ProposalProcessView) por CreatedOn.
+      // ?propostas=1&delta=1          → só as alteradas desde o último sync (ProposalUpdateOn).
+      const results: Record<string, unknown>[] = [];
+      if (params.get("delta")) {
+        const st = (await sql`select to_char((coalesce(max((data->>'ProposalUpdateOn')::timestamptz), now() - interval '7 days')
+                                              - interval '3 minutes') at time zone '-03:00',
+                                             'YYYY-MM-DD"T"HH24:MI:SS')||'-03:00' as hwm
+                              from raw.proposal_process`)[0];
+        results.push({
+          delta: st.hwm,
+          ...(await recoverByFilter(sql, token, `ProposalUpdateOn ge ${st.hwm}`, "ProposalID asc", 100, started, 0, PROPOSTA_SELECT, "ProposalProcessView")),
+        });
+      } else {
+        for (const ym of (params.get("months") ?? "").split(",").map((s) => s.trim()).filter(Boolean)) {
+          if (Date.now() - started > BUDGET_MS) { log.timeBudget = true; break; }
+          results.push({ month: ym, ...(await recoverByFilter(sql, token, propostaMonthFilter(ym), "ProposalID asc", 100, started, 0, PROPOSTA_SELECT, "ProposalProcessView")) });
+        }
+      }
+      log.propostas = results;
+      log.propostasCount = (await sql`select count(*)::int n from raw.proposal_process`)[0].n;
+    } else if (params.get("proposal")) {
       // ?proposal=1&year=26 → só processos '-26' (ProcessID embute o ano). Sem year = view inteira.
       const startSkip = Number(params.get("skip") ?? 0);
       const size = Number(params.get("size") ?? 40);

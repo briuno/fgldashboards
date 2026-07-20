@@ -26,6 +26,12 @@ type CompareLineProps = {
   height?: number;
   /** Rótulos de valor sobre a série corrente. */
   showLabels?: boolean;
+  /**
+   * Formato dos rótulos: "compacto" ("1,2 Mi") para dinheiro, "inteiro" (1.043) para
+   * contagens. É string, e não função, porque este é um Client Component — funções não
+   * atravessam a fronteira server→client.
+   */
+  labelFormat?: "compacto" | "inteiro";
 };
 
 const valueFormatter = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
@@ -37,7 +43,9 @@ export function CompareLine({
   currName,
   height = 280,
   showLabels = false,
+  labelFormat = "compacto",
 }: CompareLineProps) {
+  const labelFormatter = labelFormat === "inteiro" ? valueFormatter : fmtCompact;
   if (data.length === 0) {
     return <EmptyState className="h-[280px]" />;
   }
@@ -87,7 +95,7 @@ export function CompareLine({
               dataKey="curr"
               position="top"
               offset={10}
-              formatter={(v) => (v != null ? fmtCompact(Number(v)) : "")}
+              formatter={(v) => (v != null ? labelFormatter(Number(v)) : "")}
               style={{ fill: "var(--foreground)", fontSize: 10, fontWeight: 600 }}
             />
           )}
