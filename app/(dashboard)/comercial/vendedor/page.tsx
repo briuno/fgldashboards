@@ -51,7 +51,7 @@ export default async function ComercialVendedorPage({
         />
       </PageHeader>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard title={`Vendedores ${ano}`} value={num.format(vendedores.length)} icon={Users} accent="red" hint="Com processos no ano" />
         <KpiCard title={`Processos ${ano}`} value={num.format(totalProc)} icon={Package} accent="dark" hint="Total no ano" />
         <KpiCard title={`Receita ${ano} (R$)`} value={fmtMi(totalRev)} icon={CircleDollarSign} accent="red" hint="Soma das propostas" />

@@ -225,7 +225,7 @@ export default async function PropostaPage({
             </div>
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard
               title={`Propostas ${ano}`}
               value={num.format(tCurr.propostas)}
@@ -259,8 +259,8 @@ export default async function PropostaPage({
             />
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-3">
-            <Card className="xl:col-span-2">
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Card className="lg:col-span-2">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">
                   Propostas criadas por mês — {ano} vs {ano - 1}
@@ -295,8 +295,8 @@ export default async function PropostaPage({
             </Card>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-3">
-            <Card className="xl:col-span-2">
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Card className="lg:col-span-2">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">
                   Valor proposto (R$){valorPrevOk ? ` — ${ano} vs ${ano - 1}` : ` — ${ano}`}
@@ -356,7 +356,7 @@ export default async function PropostaPage({
             </Card>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">Propostas por mês</CardTitle>

@@ -113,7 +113,7 @@ export default async function AuditoriaPage() {
       </div>
 
       {/* KPIs */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           title="Última sincronização"
           value={fmtRelative(health?.last_success_at)}
@@ -144,7 +144,8 @@ export default async function AuditoriaPage() {
         />
       </div>
 
-      {/* Gráfico diário + reconciliação */}
+      {/* Gráfico diário + reconciliação. Em xl: a tabela ao lado precisa da largura —
+          a 2fr de uma tela lg ela passava a rolar na horizontal. */}
       <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
         <Card>
           <CardHeader className="pb-2">

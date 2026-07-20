@@ -113,7 +113,7 @@ export default async function DesempenhoModalidadePage({
         />
       </PageHeader>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           title={`Processos ${ano}`}
           value={num.format(Number(totais?.processos ?? 0))}
@@ -144,7 +144,7 @@ export default async function DesempenhoModalidadePage({
         />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Principais Agentes por Processos</CardTitle>
@@ -169,7 +169,7 @@ export default async function DesempenhoModalidadePage({
         </Card>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Top 10 Agentes por GP2</CardTitle>
@@ -224,7 +224,7 @@ export default async function DesempenhoModalidadePage({
         </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Comparativo Top 3 Agentes — Processos por Mês</CardTitle>

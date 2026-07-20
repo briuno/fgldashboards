@@ -233,7 +233,7 @@ export default async function FinanceiroPage({
       )}
 
       {/* KPIs */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           title={`Receita ${ano} (R$)`}
           value={tCurr && propCurrOk ? fmtMi(Number(tCurr.revenue)) : "—"}
@@ -268,7 +268,8 @@ export default async function FinanceiroPage({
         />
       </div>
 
-      {/* Gross Profit: combo mensal + comparativo anual + destaques/donut */}
+      {/* Gross Profit: combo mensal + comparativo anual + destaques/donut.
+          Fica em xl: a 4 colunas o lg deixaria os painéis com 168px e cortaria os rótulos. */}
       <div className="grid gap-4 xl:grid-cols-4">
         <Card className="xl:col-span-2">
           <CardHeader className="pb-2">
@@ -344,7 +345,7 @@ export default async function FinanceiroPage({
         </div>
       </div>
 
-      {/* Tabela mensal + modalidade/clientes */}
+      {/* Tabela mensal + modalidade/clientes — idem: em lg a coluna lateral cairia p/ 168px. */}
       <div className="grid gap-4 xl:grid-cols-4">
         <Card className="xl:col-span-3">
           <CardHeader className="pb-2">
@@ -429,7 +430,7 @@ export default async function FinanceiroPage({
       </div>
 
       {/* Evoluções */}
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Evolução da Receita (R$)</CardTitle>

@@ -28,11 +28,13 @@ const ACCENTS: Record<NonNullable<KpiCardProps["accent"]>, string> = {
 export function KpiCard({ title, value, icon: Icon, accent = "red", delta, hint, className }: KpiCardProps) {
   return (
     <Card className={cn("py-5", className)}>
-      <CardContent className="flex items-center gap-4 px-5">
+      <CardContent className="flex items-center gap-3 px-4 xl:gap-4 xl:px-5">
         {Icon && (
+          // Entre lg e xl a fileira de 4 cards fica com ~172px cada: o círculo comeria
+          // 68px e truncaria o próprio número. O ícone é decorativo — some até dar espaço.
           <div
             className={cn(
-              "flex size-13 shrink-0 items-center justify-center rounded-full",
+              "hidden size-13 shrink-0 items-center justify-center rounded-full xl:flex",
               ACCENTS[accent],
             )}
           >
@@ -40,7 +42,10 @@ export function KpiCard({ title, value, icon: Icon, accent = "red", delta, hint,
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <p className="text-muted-foreground truncate text-[11px] font-semibold tracking-wide uppercase">
+          <p
+            className="text-muted-foreground truncate text-[11px] font-semibold tracking-wide uppercase"
+            title={title}
+          >
             {title}
           </p>
           <p className="mt-0.5 truncate text-[26px] leading-tight font-bold tracking-tight tabular-nums">

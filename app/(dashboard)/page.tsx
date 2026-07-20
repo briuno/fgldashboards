@@ -137,7 +137,7 @@ export default async function VisaoExecutivaPage({
       </PageHeader>
 
       {/* KPIs */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           title={`Processos ${ano}`}
           value={num.format(totalProc)}
@@ -169,7 +169,7 @@ export default async function VisaoExecutivaPage({
       </div>
 
       {/* Clientes + evolução + modalidades */}
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Principais Clientes por Quantidade de Processos</CardTitle>
@@ -216,7 +216,8 @@ export default async function VisaoExecutivaPage({
         </Card>
       </div>
 
-      {/* Tabelas comparativas + agentes + resumo */}
+      {/* Tabelas comparativas + agentes + resumo. São 4 tabelas de 4 colunas cada:
+          em lg cairiam para 168px e ficariam ilegíveis, então seguem em xl. */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">

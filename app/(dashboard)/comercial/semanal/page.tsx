@@ -120,7 +120,7 @@ export default async function ComercialSemanalPage({
         />
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard title="Nº da Semana" value={String(semanaSel)} icon={Hash} accent="dark" hint={`Ano ${ano}`} />
         <KpiCard title="Processos convertidos" value={num.format(convertidos.length)} icon={Package} accent="red" hint="Na semana" />
         <KpiCard title="Clientes" value={num.format(clientes)} icon={Users} accent="dark" hint="Distintos na semana" />
@@ -128,12 +128,12 @@ export default async function ComercialSemanalPage({
       </div>
 
       <SectionHeader kicker="Diagnóstico" title="Quem puxou o resultado da semana" description="Conversões quebradas por vendedor, tipo e cliente" />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <MiniBars title="Convertidos por Vendedor" items={porVendedor} />
         <MiniBars title="Convertidos por Tipo" items={porTipo} />
         <MiniBars title="Convertidos por Cliente" items={porCliente} />
       </div>
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2">
         <MiniBars title="Profit Previsto por Vendedor (R$)" items={profitVendedor} currency />
       </div>
 
@@ -145,7 +145,7 @@ export default async function ComercialSemanalPage({
       </Card>
 
       <SectionHeader kicker="Ofensores" title="Processos Cancelados" description={`Ano ${ano} inteiro — semana pela data de criação`} />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <KpiCard title="Processos cancelados" value={num.format(cancelados.length)} icon={XCircle} accent="red" hint={`Ano ${ano}`} />
         <KpiCard
           title="Clientes"
@@ -162,7 +162,7 @@ export default async function ComercialSemanalPage({
           hint="Semana mais recente com cancelamento"
         />
       </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <MiniBars title="Cancelados por Vendedor" items={cancPorVendedor} />
         <MiniBars title="Cancelados por Tipo" items={cancPorTipo} />
         <MiniBars title="Cancelados por Cliente" items={cancPorCliente} />
