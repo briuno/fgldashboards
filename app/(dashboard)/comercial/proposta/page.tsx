@@ -336,7 +336,9 @@ export default async function PropostaPage({
 
           {/* Largura total: 5 colunas em meia largura espremiam o valor em 2 linhas. */}
           <div className="grid gap-4">
-            <Card>
+            {/* min-w-0: sem isso o item de grid estica até a largura natural da tabela
+                e empurra a página, em vez de deixar o scroll interno do card agir. */}
+            <Card className="min-w-0">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">Vendedores {ano}</CardTitle>
                 <CardDescription>Volume, conversão e valor proposto</CardDescription>
@@ -345,7 +347,7 @@ export default async function PropostaPage({
                 <QuebraTable rows={porVendedor} rotulo="Vendedor" mostrarValor={valorCurrOk} />
               </CardContent>
             </Card>
-            <Card>
+            <Card className="min-w-0">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">Clientes {ano}</CardTitle>
                 <CardDescription>Top 10 por volume de propostas</CardDescription>

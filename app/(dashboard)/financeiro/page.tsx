@@ -79,12 +79,17 @@ function Destaque({
   suffix?: string;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border p-3.5">
+    // min-w-0: como item de grid ele não encolheria abaixo do texto ("Receita 2025
+    // (mesmo período)") e vazava para fora do card em telas de 1280px.
+    <div className="flex min-w-0 items-center gap-3 rounded-xl border p-3.5">
       <div className={`flex size-10 shrink-0 items-center justify-center rounded-full ${iconClass}`}>
         <Icon className="size-4.5" strokeWidth={2} />
       </div>
       <div className="min-w-0">
-        <p className="text-muted-foreground truncate text-[10.5px] font-semibold tracking-wide uppercase">
+        <p
+          className="text-muted-foreground truncate text-[10.5px] font-semibold tracking-wide uppercase"
+          title={label}
+        >
           {label}
         </p>
         <p className="text-lg leading-tight font-bold tabular-nums">{value}</p>
@@ -345,9 +350,12 @@ export default async function FinanceiroPage({
         </div>
       </div>
 
-      {/* Tabela mensal + modalidade/clientes — idem: em lg a coluna lateral cairia p/ 168px. */}
-      <div className="grid gap-4 xl:grid-cols-4">
-        <Card className="xl:col-span-3">
+      {/* Tabela mensal em largura total: são 13 colunas (mês + 4 métricas × 2 anos + variação)
+          e, dividindo a faixa com o donut, a coluna "Margem GP2" ficava escondida no scroll. */}
+      <div className="grid gap-4">
+        {/* min-w-0: item de grid tem min-width:auto e esticaria até a largura natural da
+            tabela (982px), empurrando a página inteira em vez de deixar o scroll interno agir. */}
+        <Card className="min-w-0">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">
               Desempenho Financeiro Mensal: {ano - 1} vs {ano}
@@ -374,20 +382,22 @@ export default async function FinanceiroPage({
           </CardContent>
         </Card>
 
-        <div className="flex flex-col gap-4">
+        <div className="grid gap-4 lg:grid-cols-2">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Modalidades {ano}</CardTitle>
               <CardDescription>Participação no GP2</CardDescription>
             </CardHeader>
             <CardContent>
+              {/* legenda embaixo: cada linha usa a largura inteira do card, então o nome
+                  da modalidade e o valor cabem lado a lado sem cortar ("Ocean I…") */}
               <Donut
                 data={donutTipos}
                 centerValue={tCurr && propCurrOk ? fmtMi(Number(tCurr.gp2)) : undefined}
                 centerLabel={`GP2 ${ano}`}
                 colors={["var(--chart-3)", "var(--chart-2)", "var(--chart-5)", "var(--chart-6)", "var(--chart-7)", "var(--chart-4)"]}
                 legend="bottom"
-                size={170}
+                size={190}
               />
             </CardContent>
           </Card>
