@@ -20,6 +20,8 @@ type YoyTableProps = {
   totalPrev?: number | null;
   totalCurr?: number | null;
   labelHeader?: string;
+  /** Rótulo da linha de total — use p/ avisar quando ela soma só o período comparável. */
+  totalLabel?: string;
 };
 
 /** Tabela comparativa ano-1 × ano com variação % — padrão dos mockups. */
@@ -30,6 +32,7 @@ export function YoyTable({
   totalPrev,
   totalCurr,
   labelHeader = "Mês",
+  totalLabel = "Total",
 }: YoyTableProps) {
   if (rows.length === 0) {
     return <EmptyState className="h-[160px]" />;
@@ -60,7 +63,7 @@ export function YoyTable({
       {(totalPrev != null || totalCurr != null) && (
         <TableFooter>
           <TableRow className="hover:bg-transparent">
-            <TableCell>Total</TableCell>
+            <TableCell>{totalLabel}</TableCell>
             <TableCell className="text-right tabular-nums">{cell(totalPrev ?? null)}</TableCell>
             <TableCell className="text-right tabular-nums">{cell(totalCurr ?? null)}</TableCell>
             <TableCell className="text-right">

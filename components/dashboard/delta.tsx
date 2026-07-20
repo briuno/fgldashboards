@@ -24,7 +24,9 @@ export function Delta({ value, suffix, unit = "%", digits = 2, className }: Delt
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 text-xs font-semibold tabular-nums",
+        // nowrap: em card estreito o "+16,87 p.p. vs 2025" quebrava em 2 linhas
+        // e desalinhava a fileira de KPIs.
+        "inline-flex items-center gap-1 text-xs font-semibold whitespace-nowrap tabular-nums",
         flat ? "text-muted-foreground" : up ? "text-emerald-600" : "text-primary",
         className,
       )}

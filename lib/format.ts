@@ -22,11 +22,16 @@ export function fmtMi(v: number, digits = 2): string {
   return int.format(v);
 }
 
-/** Compacto para eixos/rótulos de gráfico: "3 Mi", "500 Mil", "82". */
+/**
+ * Compacto para eixos/rótulos de gráfico: "3 Mi", "1,4 Mil", "82".
+ * Abaixo de 10 mil usa 1 casa decimal — sem isso, marcas de eixo como 1.050 e 1.400
+ * viravam ambas "1 Mil" e o eixo repetia o mesmo rótulo.
+ */
 export function fmtCompact(v: number): string {
   const abs = Math.abs(v);
   if (abs >= 1e6) return `${(v / 1e6).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} Mi`;
-  if (abs >= 1e3) return `${(v / 1e3).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} Mil`;
+  if (abs >= 1e3)
+    return `${(v / 1e3).toLocaleString("pt-BR", { maximumFractionDigits: abs < 1e4 ? 1 : 0 })} Mil`;
   return int.format(v);
 }
 

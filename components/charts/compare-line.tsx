@@ -49,6 +49,9 @@ export function CompareLine({
   if (data.length === 0) {
     return <EmptyState className="h-[280px]" />;
   }
+  // Sem nenhum ponto do ano anterior, omitir a série: senão a legenda anuncia um
+  // ano que não tem linha nenhuma no gráfico.
+  const temPrev = data.some((d) => d.prev != null);
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={data} margin={{ left: 4, right: 16, top: 20, bottom: 0 }}>
@@ -69,17 +72,19 @@ export function CompareLine({
         />
         <Tooltip cursor={{ stroke: "var(--border)" }} content={<ChartTooltip valueFormatter={valueFormatter} />} />
         <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: "var(--muted-foreground)" }} />
-        <Line
-          type="monotone"
-          dataKey="prev"
-          name={prevName}
-          stroke="var(--chart-4)"
-          strokeWidth={1.8}
-          strokeDasharray="5 4"
-          connectNulls
-          dot={{ r: 2.5, fill: "var(--chart-4)", strokeWidth: 0 }}
-          activeDot={{ r: 4, strokeWidth: 0 }}
-        />
+        {temPrev && (
+          <Line
+            type="monotone"
+            dataKey="prev"
+            name={prevName}
+            stroke="var(--chart-4)"
+            strokeWidth={1.8}
+            strokeDasharray="5 4"
+            connectNulls
+            dot={{ r: 2.5, fill: "var(--chart-4)", strokeWidth: 0 }}
+            activeDot={{ r: 4, strokeWidth: 0 }}
+          />
+        )}
         <Line
           type="monotone"
           dataKey="curr"

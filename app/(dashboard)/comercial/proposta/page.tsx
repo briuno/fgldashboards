@@ -23,7 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { MESES, MESES_CURTO, fmtMi, int, num, pct1, variacao } from "@/lib/format";
+import { MESES, MESES_CURTO, fmtMi, int, nomeCurto, num, pct1, variacao } from "@/lib/format";
 import {
   getPropostasMensal,
   getPropostasQuebra,
@@ -64,11 +64,14 @@ function QuebraTable({
   rotulo,
   limite = 10,
   mostrarValor = true,
+  abreviarNome = false,
 }: {
   rows: QuebraRow[];
   rotulo: string;
   limite?: number;
   mostrarValor?: boolean;
+  /** Encurta razões sociais longas (regra do PBI) p/ a tabela caber no card. */
+  abreviarNome?: boolean;
 }) {
   if (rows.length === 0) return <EmptyState className="h-[240px]" />;
   return (
@@ -79,7 +82,7 @@ function QuebraTable({
           <TableHead className="text-right">Propostas</TableHead>
           <TableHead className="text-right">Ganhas</TableHead>
           <TableHead className="text-right">Conversão</TableHead>
-          {mostrarValor && <TableHead className="text-right">Valor (R$)</TableHead>}
+          {mostrarValor && <TableHead className="text-right">Valor</TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -88,16 +91,18 @@ function QuebraTable({
           const conv = decididas > 0 ? (r.ganhas / decididas) * 100 : null;
           return (
             <TableRow key={r.rotulo}>
-              <TableCell className="max-w-[240px] truncate py-1.5" title={r.rotulo}>
-                {r.rotulo}
+              <TableCell className="max-w-[340px] truncate py-1.5" title={r.rotulo}>
+                {abreviarNome ? nomeCurto(r.rotulo) : r.rotulo}
               </TableCell>
-              <TableCell className="py-1.5 text-right tabular-nums">{num.format(r.propostas)}</TableCell>
-              <TableCell className="py-1.5 text-right tabular-nums">{num.format(r.ganhas)}</TableCell>
-              <TableCell className="py-1.5 text-right tabular-nums">
+              <TableCell className="py-1.5 text-right whitespace-nowrap tabular-nums">{num.format(r.propostas)}</TableCell>
+              <TableCell className="py-1.5 text-right whitespace-nowrap tabular-nums">{num.format(r.ganhas)}</TableCell>
+              <TableCell className="py-1.5 text-right whitespace-nowrap tabular-nums">
                 {conv !== null ? `${pct1.format(conv)}%` : "—"}
               </TableCell>
               {mostrarValor && (
-                <TableCell className="py-1.5 text-right tabular-nums">{fmtMi(Number(r.total_sales))}</TableCell>
+                <TableCell className="py-1.5 text-right whitespace-nowrap tabular-nums">
+                  {fmtMi(Number(r.total_sales))}
+                </TableCell>
               )}
             </TableRow>
           );
@@ -234,7 +239,6 @@ export default async function PropostaPage({
               icon={Trophy}
               accent="dark"
               delta={{ value: variacao(spGanhas.prev, spGanhas.curr), suffix: vsAnt }}
-              hint={`${num.format(tCurr.abertas)} ainda em aberto`}
             />
             <KpiCard
               title="Taxa de conversão"
@@ -244,14 +248,14 @@ export default async function PropostaPage({
               delta={{ value: convPp, unit: "p.p.", suffix: vsAnt }}
             />
             <KpiCard
-              title={`Valor proposto ${ano} (R$)`}
+              title="Valor proposto"
               value={valorCurrOk ? fmtMi(Number(tCurr.total_sales)) : "—"}
               icon={CircleDollarSign}
               accent="dark"
               delta={
                 valorComparavel ? { value: variacao(spValor.prev, spValor.curr), suffix: vsAnt } : undefined
               }
-              hint={valorCurrOk ? undefined : "não registrado no Tier2"}
+              hint={valorCurrOk ? undefined : "sem registro no Tier2"}
             />
           </div>
 
@@ -294,7 +298,9 @@ export default async function PropostaPage({
           <div className="grid gap-4 xl:grid-cols-3">
             <Card className="xl:col-span-2">
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Valor proposto (R$) — {ano} vs {ano - 1}</CardTitle>
+                <CardTitle className="text-base">
+                  Valor proposto (R$){valorPrevOk ? ` — ${ano} vs ${ano - 1}` : ` — ${ano}`}
+                </CardTitle>
                 <CardDescription>Soma de TotalSales das propostas criadas no mês</CardDescription>
               </CardHeader>
               <CardContent>
@@ -328,7 +334,8 @@ export default async function PropostaPage({
             </Card>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-2">
+          {/* Largura total: 5 colunas em meia largura espremiam o valor em 2 linhas. */}
+          <div className="grid gap-4">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">Vendedores {ano}</CardTitle>
@@ -356,12 +363,15 @@ export default async function PropostaPage({
                 <CardDescription>{ano - 1} × {ano} com variação</CardDescription>
               </CardHeader>
               <CardContent>
+                {/* Total = mesmo período: somar os 12 meses de 2025 contra os 7 de 2026
+                    daria uma variação falsa (-44%) e contradiria o card do topo. */}
                 <YoyTable
                   ano={ano}
                   rows={yoyPropostas}
                   fmt={(v) => int.format(v)}
-                  totalPrev={tPrev?.propostas ?? null}
-                  totalCurr={tCurr.propostas}
+                  totalPrev={spPropostas.prev}
+                  totalCurr={spPropostas.curr}
+                  totalLabel={curr.length < 12 ? "Total (mesmo período)" : "Total"}
                 />
               </CardContent>
             </Card>
@@ -381,11 +391,17 @@ export default async function PropostaPage({
                         <p className="text-lg leading-tight font-bold tabular-nums">
                           {fmtMi(Number(tCurr.profit_ganho))}
                         </p>
-                        <Delta
-                          value={valorComparavel ? variacao(spProfitGanho.prev, spProfitGanho.curr) : null}
-                          suffix={vsAnt}
-                          className="text-[11px]"
-                        />
+                        {valorComparavel ? (
+                          <Delta
+                            value={variacao(spProfitGanho.prev, spProfitGanho.curr)}
+                            suffix={vsAnt}
+                            className="text-[11px]"
+                          />
+                        ) : (
+                          <p className="text-muted-foreground text-[11px]">
+                            sem base de {ano - 1}
+                          </p>
+                        )}
                       </div>
                       <div className="rounded-xl border p-3.5">
                         <p className="text-muted-foreground text-[10.5px] font-semibold tracking-wide uppercase">
@@ -424,8 +440,9 @@ export default async function PropostaPage({
 
       <p className="text-muted-foreground text-xs">
         Fonte: Tier2 · <span className="font-medium">ProposalProcessView</span> (cotações PROP-*) ·
-        Data-base: criação da proposta · Conversão = ganhas ÷ propostas criadas · Valor =
-        TotalSales · Profit previsto = ForecastNetProfit. Não confundir com a
+        Data-base: criação da proposta · Conversão = ganhas ÷ decididas (ganhas + perdidas), pois as
+        abertas ainda estão em disputa · Valor = TotalSales · Profit previsto = ForecastNetProfit ·
+        As variações comparam os mesmos meses dos dois anos. Não confundir com a
         “ShipmentProfitProposalView”, que é a <span className="font-medium">provisão</span> de lucro
         do processo e alimenta o Financeiro.
       </p>
