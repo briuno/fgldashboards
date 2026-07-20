@@ -205,28 +205,40 @@ Deno.serve(async (req) => {
       // ?propostas=1&delta=1          → só as alteradas desde o último sync (ProposalUpdateOn).
       const results: Record<string, unknown>[] = [];
       if (params.get("delta")) {
+        // ATENÇÃO: usar 'America/Sao_Paulo', NUNCA a string '-03:00'. O Postgres trata um
+        // offset literal com convenção POSIX e INVERTE o sinal — `at time zone '-03:00'`
+        // devolve UTC+3, jogando o cursor 6 h para a frente e fazendo o delta pular
+        // silenciosamente tudo que foi alterado nessa janela.
         const st = (await sql`select to_char((coalesce(max((data->>'ProposalUpdateOn')::timestamptz), now() - interval '7 days')
-                                              - interval '3 minutes') at time zone '-03:00',
+                                              - interval '3 minutes') at time zone 'America/Sao_Paulo',
                                              'YYYY-MM-DD"T"HH24:MI:SS')||'-03:00' as hwm
                               from raw.proposal_process`)[0];
-        results.push({
-          delta: st.hwm,
-          ...(await recoverByFilter(sql, token, `ProposalUpdateOn ge ${st.hwm}`, "ProposalID asc", 100, started, 0, PROPOSTA_SELECT, "ProposalProcessView")),
-        });
+        const res = await recoverByFilter(sql, token, `ProposalUpdateOn ge ${st.hwm}`, "ProposalID asc", 100, started, 0, PROPOSTA_SELECT, "ProposalProcessView");
+        rowsUpserted += res.got; rowsLost += res.lost;
+        results.push({ delta: st.hwm, ...res });
       } else {
         for (const ym of (params.get("months") ?? "").split(",").map((s) => s.trim()).filter(Boolean)) {
           if (Date.now() - started > BUDGET_MS) { log.timeBudget = true; break; }
-          results.push({ month: ym, ...(await recoverByFilter(sql, token, propostaMonthFilter(ym), "ProposalID asc", 100, started, 0, PROPOSTA_SELECT, "ProposalProcessView")) });
+          const res = await recoverByFilter(sql, token, propostaMonthFilter(ym), "ProposalID asc", 100, started, 0, PROPOSTA_SELECT, "ProposalProcessView");
+          rowsUpserted += res.got; rowsLost += res.lost;
+          results.push({ month: ym, ...res });
         }
       }
       log.propostas = results;
       log.propostasCount = (await sql`select count(*)::int n from raw.proposal_process`)[0].n;
     } else if (params.get("proposal")) {
-      // ?proposal=1&year=26 → só processos '-26' (ProcessID embute o ano). Sem year = view inteira.
+      // ?proposal=1&year=26,25 → processos cujo ProcessID contém '-26' OU '-25'. Sem year = view inteira.
+      //
+      // O ano no ProcessID é o de CRIAÇÃO, não o do ProcessDate: 12,9% dos processos com data
+      // em 2026 têm ID '-25' (e 16,2% dos de 2025 têm '-24'). Filtrar só o ano corrente deixava
+      // essa fatia sem atualização — por isso o cron passa ano corrente E anterior, que pela
+      // medição cobre 100% (a dispersão nunca passa de um ano para trás).
       const startSkip = Number(params.get("skip") ?? 0);
       const size = Number(params.get("size") ?? 40);
-      const year = params.get("year");
-      const filter = year ? `contains(ProcessId,'-${year}')` : "";
+      const years = (params.get("year") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+      const filter = years.length
+        ? years.map((y) => `contains(ProcessId,'-${y}')`).join(" or ")
+        : "";
       const res = await recoverByFilter(sql, token, filter, "ProcessId asc", size, started, startSkip, PROPOSAL_SELECT, "ShipmentProfitProposalView");
       rowsUpserted += res.got; rowsLost += res.lost;
       log.proposal = res;
@@ -253,8 +265,10 @@ Deno.serve(async (req) => {
       if (params.get("reset")) {
         await sql`update etl.sync_state set mode='full', delta_cursor=${START_MONTH}, updated_at=now() where entity='ShipmentProcessView'`;
       }
+      // 'America/Sao_Paulo' e não '-03:00': ver comentário no delta de propostas — o
+      // offset literal inverte o sinal no Postgres e adiantava o cursor em 6 h.
       const st = (await sql`select delta_cursor,
-                  to_char((coalesce(high_water_mark,'2020-01-01'::timestamptz) - interval '3 minutes') at time zone '-03:00',
+                  to_char((coalesce(high_water_mark,'2020-01-01'::timestamptz) - interval '3 minutes') at time zone 'America/Sao_Paulo',
                           'YYYY-MM-DD"T"HH24:MI:SS')||'-03:00' as hwm_lit
                 from etl.sync_state where entity='ShipmentProcessView'`)[0];
       let cursor: string = (st?.delta_cursor as string) ?? START_MONTH;
