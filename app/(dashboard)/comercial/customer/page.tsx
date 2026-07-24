@@ -21,7 +21,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fmtMi, int, nomeCurto, num } from "@/lib/format";
-import { getComercialCustomer } from "@/lib/queries/comercial";
+import { getComercialCustomer, getComercialTotais } from "@/lib/queries/comercial";
+
+const TOP = 100;
 
 export default async function ComercialCustomerPage({
   searchParams,
@@ -31,11 +33,19 @@ export default async function ComercialCustomerPage({
   const sp = await searchParams;
   const ano = Number(sp.ano) || 2026;
 
-  const clientes = await getComercialCustomer(ano, 100);
+  const [clientes, totais] = await Promise.all([
+    getComercialCustomer(ano, TOP),
+    getComercialTotais(ano),
+  ]);
 
-  const totalProc = clientes.reduce((a, c) => a + Number(c.processos), 0);
-  const totalRev = clientes.reduce((a, c) => a + Number(c.revenue), 0);
-  const totalProfit = clientes.reduce((a, c) => a + Number(c.profit_previsto), 0);
+  // Cards e denominador do "% Receita" usam o TOTAL DO ANO, não a lista truncada em
+  // top-100 — senão "Clientes" mostrava o limite (100 em vez de 133) e Processos/Receita
+  // vinham subestimados por ignorar a cauda de clientes fora do ranking.
+  const tCurr = totais.find((t) => t.ano === ano);
+  const totalClientes = Number(tCurr?.clientes ?? clientes.length);
+  const totalProc = Number(tCurr?.processos ?? 0);
+  const totalRev = Number(tCurr?.revenue ?? 0);
+  const totalProfit = Number(tCurr?.profit_previsto ?? 0);
   const topProfit = [...clientes].sort((a, b) => Number(b.profit_previsto) - Number(a.profit_previsto));
 
   return (
@@ -51,7 +61,7 @@ export default async function ComercialCustomerPage({
       </PageHeader>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard title={`Clientes ${ano}`} value={num.format(clientes.length)} icon={Users} accent="red" hint="Com processos no ano" />
+        <KpiCard title={`Clientes ${ano}`} value={num.format(totalClientes)} icon={Users} accent="red" hint="Distintos no ano" />
         <KpiCard title={`Processos ${ano}`} value={num.format(totalProc)} icon={Package} accent="dark" hint="Total no ano" />
         <KpiCard title={`Receita ${ano} (R$)`} value={fmtMi(totalRev)} icon={CircleDollarSign} accent="red" hint="Soma das propostas" />
         <KpiCard title={`Profit Previsto ${ano} (R$)`} value={fmtMi(totalProfit)} icon={TrendingUp} accent="dark" hint="ForecastNetProfit" />
@@ -74,7 +84,12 @@ export default async function ComercialCustomerPage({
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Ranking de Clientes {ano}</CardTitle>
-          <CardDescription>Top 100 por receita — profit previsto = ForecastNetProfit</CardDescription>
+          <CardDescription>
+            {totalClientes > clientes.length
+              ? `Top ${clientes.length} de ${num.format(totalClientes)} por receita`
+              : "Por receita"}{" "}
+            — profit previsto = ForecastNetProfit
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {clientes.length === 0 ? (
