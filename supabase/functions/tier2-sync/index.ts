@@ -152,7 +152,10 @@ async function recoverRange(sql: Sql, token: string, filter: string, orderby: st
     if (rows.length) await upsert(sql, rows, TABLES[entity]);
     return { got: rows.length, lost: 0 };
   } catch {
-    if (size <= 4) return { got: 0, lost: size }; // bloco irrecuperável (linha que o Tier2 dá 502)
+    // Desce até a LINHA. O piso antigo era 4, e isso descartava o bloco inteiro sem
+    // tentar um a um — na prática jogava fora até 3 linhas boas para cada linha que o
+    // Tier2 realmente nega. Medido em 2026-07: 326 "perdidas" com piso 4.
+    if (size <= 1) return { got: 0, lost: size }; // a linha em si é irrecuperável (502)
     const half = Math.floor(size / 2);
     const a = await recoverRange(sql, token, filter, orderby, skip, half, started, select, entity);
     const b = await recoverRange(sql, token, filter, orderby, skip + half, size - half, started, select, entity);
