@@ -111,20 +111,26 @@ function propostaMonthFilter(ym: string): string {
   return `CreatedOn ge ${ym}-01T00:00:00-03:00 and CreatedOn lt ${nextMonth(ym)}-01T00:00:00-03:00`;
 }
 
-async function fetchByFilter(token: string, filter: string, skip: number, size: number, orderby: string, select: string = SELECT, entity = "ShipmentProcessView"): Promise<Row[]> {
+// `tentativas` existe para a bissecção: lá o bloco JÁ falhou, e um 502 determinístico
+// (linha que o Tier2 não consegue servir) nunca vira sucesso na segunda tentativa — as
+// 3 tentativas com backoff só queimam orçamento, multiplicadas por cada nó da recursão.
+// No caminho normal segue 3, que é onde a falha transitória de rede acontece.
+async function fetchByFilter(token: string, filter: string, skip: number, size: number, orderby: string, select: string = SELECT, entity = "ShipmentProcessView", tentativas = 3): Promise<Row[]> {
   const url =
     `${BASE}/api/odata/${entity}` +
     `?${filter ? `$filter=${encodeURIComponent(filter)}&` : ""}$orderby=${encodeURIComponent(orderby)}` +
     `&$top=${size}&$skip=${skip}&$select=${encodeURIComponent(select)}`;
   let lastErr = "";
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < tentativas; i++) {
     try {
       const res = await fetch(url, { headers: { accept: "application/json", authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error(`odata ${res.status}`);
       return ((await res.json()).value ?? []) as Row[];
     } catch (e) {
       lastErr = String((e as Error).message);
-      await new Promise((r) => setTimeout(r, 700 * (i + 1)));
+      // Sem espera depois da ÚLTIMA tentativa — eram 2,1 s jogados fora em toda falha
+      // definitiva, em todos os modos de sync.
+      if (i < tentativas - 1) await new Promise((r) => setTimeout(r, 700 * (i + 1)));
     }
   }
   throw new Error(lastErr);
@@ -141,7 +147,8 @@ async function upsert(sql: Sql, rows: Row[], table = "shipment_process"): Promis
 async function recoverRange(sql: Sql, token: string, filter: string, orderby: string, skip: number, size: number, started: number, select: string = SELECT, entity = "ShipmentProcessView"): Promise<{ got: number; lost: number }> {
   if (Date.now() - started > BUDGET_MS) return { got: 0, lost: 0 };
   try {
-    const rows = await fetchByFilter(token, filter, skip, size, orderby, select, entity);
+    // 1 tentativa: já estamos recuperando um bloco que falhou (ver fetchByFilter).
+    const rows = await fetchByFilter(token, filter, skip, size, orderby, select, entity, 1);
     if (rows.length) await upsert(sql, rows, TABLES[entity]);
     return { got: rows.length, lost: 0 };
   } catch {
