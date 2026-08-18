@@ -9,6 +9,11 @@
 //                     raw.shipment_profit_proposal. A view não tem coluna de data; o ano está
 //                     no ProcessID ('IA-26016395'): &year=26 filtra contains(ProcessId,'-26').
 //                     Usa a recuperação por bissecção (linhas 502). Resumível com &skip=N.
+//   ?profitmap=1      sincroniza InvoiceProposalProfitMapView (Payable/Receivable por item
+//                     de fatura) → raw.invoice_proposal_profit_map. Janela mensal por
+//                     ShipmentProcessDate a partir de 2022-01; concluído o backfill, passa
+//                     a reprocessar os últimos 3 meses (a view não tem coluna de update, e
+//                     o que muda depois do fato é a liquidação).
 // Chamar via pg_cron: no backfill até backfillComplete; depois roda o delta diário.
 
 import postgres from "https://deno.land/x/postgresjs@v3.4.5/mod.js";
@@ -53,7 +58,47 @@ const TABLES: Record<string, string> = {
   ShipmentProcessView: "shipment_process",
   ShipmentProfitProposalView: "shipment_profit_proposal",
   ProposalProcessView: "proposal_process",
+  InvoiceProposalProfitMapView: "invoice_proposal_profit_map",
 };
+
+// PROFIT MAP — grão de ITEM de fatura/proposta (custo Payable ou receita Receivable de
+// um processo). Alimenta mart.profitmap_* e a tela /financeiro/profit-map.
+const PROFITMAP_ENTITY = "InvoiceProposalProfitMapView";
+const PROFITMAP_SELECT =
+  "Oid,InvoiceProposalType,InvoiceProposalTypeCode,InvoiceProposalSourceType," +
+  "InvoiceProposalAmount,InvoiceProposalForecastExchangeRate,InvoiceProposalForecastAmountSys," +
+  "InvoiceProposalSettlementAmount,InvoiceProposalTransDate,CurrencyISOCode," +
+  "InvoiceOID,InvoiceLastSettlementDate,ShipmentProcessOID,ShipmentProcessID," +
+  "ShipmentProcessType,ShipmentProcessModal,ShipmentProcessDate," +
+  "ShipmentBusinessPartner,ShipmentCompany,ItemsName,ItemsNamePT,BusinessPartnerName";
+// Histórico a partir de 2022 (decisão de escopo: casa com os seletores de ano da tela e
+// evita o volume de 2020-2021 num grão que é ~20× o de processos).
+const PROFITMAP_START_MONTH = "2022-01";
+// Sem coluna de atualização na view, o "delta" é reprocessar os meses recentes — é onde
+// a liquidação ainda muda depois do fato.
+const PROFITMAP_ROLLING_MONTHS = 3;
+
+function prevMonth(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
+}
+/** Mês corrente em America/Sao_Paulo (UTC-3), sem depender do TZ do runtime. */
+function currentMonth(): string {
+  const d = new Date(Date.now() - 3 * 3600 * 1000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+function recentMonths(n: number): string[] {
+  const out: string[] = [];
+  let ym = currentMonth();
+  for (let i = 0; i < n; i++) {
+    out.unshift(ym);
+    ym = prevMonth(ym);
+  }
+  return out;
+}
+function profitMapMonthFilter(ym: string): string {
+  return `ShipmentProcessDate ge ${ym}-01T00:00:00-03:00 and ShipmentProcessDate lt ${nextMonth(ym)}-01T00:00:00-03:00`;
+}
 
 // PROPOSTA COMERCIAL de verdade (cotação PROP-*), ≠ ShipmentProfitProposalView (= provisão).
 // Tem CreatedOn, então janela mês a mês como a ShipmentProcessView.
@@ -158,9 +203,11 @@ Deno.serve(async (req) => {
   // Auditoria: uma linha por execução em etl.sync_log (running → success/error).
   const entity = params.get("propostas") ? "ProposalProcessView"
     : params.get("proposal") ? "ShipmentProfitProposalView"
+    : params.get("profitmap") ? PROFITMAP_ENTITY
     : "ShipmentProcessView";
   let mode = params.get("propostas") ? (params.get("delta") ? "propostas-delta" : "propostas")
     : params.get("proposal") ? "proposal"
+    : params.get("profitmap") ? "profitmap"
     : params.get("nulldate") ? "nulldate"
     : params.get("months") ? "months"
     : "auto"; // backfill|delta definido em tempo de execução
@@ -243,6 +290,72 @@ Deno.serve(async (req) => {
       rowsUpserted += res.got; rowsLost += res.lost;
       log.proposal = res;
       log.proposalCount = (await sql`select count(*)::int n from raw.shipment_profit_proposal`)[0].n;
+    } else if (params.get("profitmap")) {
+      // ?profitmap=1                  → backfill mês a mês do cursor; concluído, passa a
+      //                                 reprocessar os últimos PROFITMAP_ROLLING_MONTHS meses.
+      // ?profitmap=1&months=YYYY-MM,… → reprocessa meses específicos.
+      // ?profitmap=1&reset=1          → volta o cursor para PROFITMAP_START_MONTH.
+      //
+      // Ordenação por Oid (e NÃO por ShipmentProcessID): no grão de item o ProcessID se
+      // repete dezenas de vezes, e paginar com $skip sobre chave não-única pula e duplica
+      // linhas silenciosamente.
+      const results: Record<string, unknown>[] = [];
+      const size = Number(params.get("size") ?? 200);
+      const rodar = async (ym: string) => {
+        const res = await recoverByFilter(
+          sql, token, profitMapMonthFilter(ym), "Oid asc", size, started, 0,
+          PROFITMAP_SELECT, PROFITMAP_ENTITY,
+        );
+        rowsUpserted += res.got; rowsLost += res.lost;
+        results.push({ month: ym, ...res });
+      };
+
+      const meses = (params.get("months") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+      if (meses.length) {
+        mode = "profitmap-months";
+        for (const ym of meses) {
+          if (Date.now() - started > BUDGET_MS) { log.timeBudget = true; break; }
+          await rodar(ym);
+        }
+      } else {
+        await sql`insert into etl.sync_state (entity, mode, delta_cursor)
+                  values (${PROFITMAP_ENTITY},'full',${PROFITMAP_START_MONTH})
+                  on conflict (entity) do nothing`;
+        if (params.get("reset")) {
+          await sql`update etl.sync_state set mode='full', delta_cursor=${PROFITMAP_START_MONTH},
+                      updated_at=now() where entity=${PROFITMAP_ENTITY}`;
+        }
+        const st = (await sql`select delta_cursor from etl.sync_state where entity=${PROFITMAP_ENTITY}`)[0];
+        let cursor: string = (st?.delta_cursor as string) ?? PROFITMAP_START_MONTH;
+
+        if (cursor <= STOP_MONTH) {
+          // ---- BACKFILL (resumível: o cron chama de novo até backfillComplete) ----
+          mode = "profitmap-backfill";
+          while (Date.now() - started < BUDGET_MS && cursor <= STOP_MONTH) {
+            await rodar(cursor);
+            cursor = nextMonth(cursor);
+            await sql`update etl.sync_state set delta_cursor=${cursor}, updated_at=now()
+                      where entity=${PROFITMAP_ENTITY}`;
+          }
+          if (cursor > STOP_MONTH) {
+            await sql`update etl.sync_state set mode='delta', last_success_at=now(), updated_at=now()
+                      where entity=${PROFITMAP_ENTITY}`;
+            log.backfillComplete = true;
+          }
+          log.cursor = cursor;
+        } else {
+          // ---- JANELA MÓVEL (diária) ----
+          mode = "profitmap-rolling";
+          for (const ym of recentMonths(PROFITMAP_ROLLING_MONTHS)) {
+            if (Date.now() - started > BUDGET_MS) { log.timeBudget = true; break; }
+            await rodar(ym);
+          }
+          await sql`update etl.sync_state set last_success_at=now(), updated_at=now()
+                    where entity=${PROFITMAP_ENTITY}`;
+        }
+      }
+      log.profitmap = results;
+      log.profitmapCount = (await sql`select count(*)::int n from raw.invoice_proposal_profit_map`)[0].n;
     } else if (params.get("nulldate")) {
       const startSkip = Number(params.get("skip") ?? 0);
       const res = await recoverByFilter(sql, token, "ProcessDate eq null", "ProcessID asc", 150, started, startSkip);

@@ -52,7 +52,10 @@ export const navItems: NavItem[] = [
     label: "Financeiro",
     icon: Wallet,
     description: "AR/AP, aging e fluxo de caixa",
-    children: [{ href: "/financeiro", label: "Geral" }],
+    children: [
+      { href: "/financeiro", label: "Geral" },
+      { href: "/financeiro/profit-map", label: "Profit Map" },
+    ],
   },
   {
     href: "/processos",
