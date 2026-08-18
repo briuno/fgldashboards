@@ -377,11 +377,19 @@ Deno.serve(async (req) => {
           log.cursor = cursor;
         } else {
           // ---- JANELA MÓVEL (diária) ----
+          // Do mês CORRENTE para trás. O orçamento de 110 s raramente cobre os três, e
+          // na ordem cronológica o mês corrente — único que ainda muda todo dia — era o
+          // último da fila: só reescanear o mais antigo já consumia quase tudo, então na
+          // prática ele nunca era alcançado.
           mode = "profitmap-rolling";
-          for (const ym of recentMonths(PROFITMAP_ROLLING_MONTHS)) {
+          const parciais: string[] = [];
+          for (const ym of recentMonths(PROFITMAP_ROLLING_MONTHS).reverse()) {
             if (Date.now() - started > BUDGET_MS) { log.timeBudget = true; break; }
-            await rodar(ym);
+            if (!(await rodar(ym))) parciais.push(ym);
           }
+          // Visível no log: mês que ficou pela metade volta na execução seguinte, mas sem
+          // isso a única pista seria comparar contagens no banco.
+          if (parciais.length) log.mesesParciais = parciais;
           await sql`update etl.sync_state set last_success_at=now(), updated_at=now()
                     where entity=${PROFITMAP_ENTITY}`;
         }
