@@ -62,6 +62,7 @@ create index if not exists invoice_proposal_profit_map_data_idx
 drop function if exists mart.profitmap_processos(int, text, text, text, int, int);
 drop function if exists mart.profitmap_totais(int, text, text, text);
 drop function if exists mart.profitmap_detalhe(text);
+drop function if exists mart.profitmap_clientes_opcoes(int, int);
 drop view if exists mart.profitmap_clientes;
 drop view if exists mart.profitmap_base cascade;
 
@@ -281,14 +282,28 @@ as $$
 $$;
 
 -- Opções do dropdown de cliente (lista do ano inteiro, independente do filtro ativo).
-create view mart.profitmap_clientes as
-select ano, customer_name, count(distinct process_id)::int as processos,
-       round(sum(valor_brl), 2) as total_brl
-from mart.profitmap_base
-where customer_name is not null and customer_name <> ''
-group by 1, 2;
+-- Opcoes do dropdown de cliente. E FUNCAO e nao view de proposito: como view o filtro de
+-- ano nao alcancava o indice (o pre-filtro por faixa so existe dentro das funcoes) e a
+-- consulta levava 21.848 ms — sozinha estourava o statement_timeout de 8 s. Como funcao,
+-- 498 ms. E conta com count(*) e nao count(distinct process_id): a contagem so ordena o
+-- dropdown, e o distinct forcava ordenacao externa de 27 MB em disco.
+create function mart.profitmap_clientes_opcoes(p_ano int, p_limit int default 500)
+returns table (customer_name text, lancamentos int)
+language sql stable
+as $$
+  select b.customer_name, count(*)::int
+  from mart.profitmap_base b
+  where b.process_date_txt >= ((p_ano - 1)::text || '-12-30')
+    and b.process_date_txt <  ((p_ano + 1)::text || '-01-02')
+    and b.ano = p_ano
+    and b.customer_name is not null and b.customer_name <> ''
+  group by 1
+  order by 2 desc
+  limit greatest(p_limit, 1)
+$$;
 
-grant select on mart.profitmap_base, mart.profitmap_clientes to authenticated;
+grant select on mart.profitmap_base to authenticated;
+grant execute on function mart.profitmap_clientes_opcoes(int, int) to authenticated;
 grant execute on function mart.profitmap_processos(int, text, text, text, int, int) to authenticated;
 grant execute on function mart.profitmap_totais(int, text, text, text) to authenticated;
 grant execute on function mart.profitmap_detalhe(text) to authenticated;

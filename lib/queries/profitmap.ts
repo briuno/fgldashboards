@@ -118,19 +118,24 @@ export async function getProfitMapDetalhe(processId: string): Promise<ProfitMapD
   return (data ?? []) as ProfitMapDetalhe[];
 }
 
-/** Opções do dropdown de cliente (ano inteiro, independente do filtro ativo). */
+/**
+ * Opções do dropdown de cliente (ano inteiro, independente do filtro ativo).
+ *
+ * É RPC e não leitura de view de propósito: como view, o filtro de ano não alcançava o
+ * índice (o pré-filtro por faixa de texto só existe dentro das funções) e a consulta
+ * levava 21,8 s — sozinha estourava o statement_timeout de 8 s e, rodando junto das
+ * outras duas, derrubava a página inteira. Como função: 498 ms.
+ */
 export async function getProfitMapClientes(ano: number): Promise<string[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .schema("mart")
-    .from("profitmap_clientes")
-    .select("customer_name, processos")
-    .eq("ano", ano)
-    .order("processos", { ascending: false })
-    .limit(500);
+    .rpc("profitmap_clientes_opcoes", { p_ano: ano, p_limit: 500 });
   if (error) {
     console.error("[profitmap] clientes:", error.message);
     return [];
   }
-  return (data ?? []).map((r) => r.customer_name as string).filter(Boolean);
+  return (data ?? [])
+    .map((r: { customer_name: string | null }) => r.customer_name as string)
+    .filter(Boolean);
 }
