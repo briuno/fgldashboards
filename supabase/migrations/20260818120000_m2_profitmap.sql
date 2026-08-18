@@ -20,11 +20,12 @@
 -- referência (10,33% · 15,60% · 7,43% · 77,86% batem exatamente) e é o mesmo que a API
 -- expõe como `ProfitPctOverRevenue` em /api/ProfitMap.
 --
--- ATENÇÃO — sinal do Payable: o relatório do Tier2 mostra custo como NEGATIVO
--- ("USD -6400,00"), e por isso Total = Payable + Receivable é uma soma simples. Esta
--- migration preserva o sinal que a API devolver, sem forçar abs(). Se o primeiro sync
--- trouxer Payable positivo, `total_brl` sai errado — conferir com a query de sanidade
--- no fim deste arquivo antes de liberar a tela.
+-- SINAL DO PAYABLE (medido em 2025-01, 5.955 linhas):
+--   InvoiceProposalForecastAmountSys  → negativo em 2.636/2.636 Payable
+--   InvoiceProposalSettlementAmount   → negativo em 2.635/2.636 Payable
+--   InvoiceProposalAmount             → SEMPRE positivo (0/2.636 negativos)
+-- Ou seja: o sinal vive no valor em BRL e no liquidado, e Total = Payable + Receivable
+-- é soma simples. Só o "Valor Original" vem como magnitude e tem o sinal reposto abaixo.
 
 -- ---------------------------------------------------------------------------
 -- raw — aterrissagem
@@ -68,9 +69,16 @@ select
   extract(month from (nullif(m.data->>'ShipmentProcessDate',''))::timestamptz
                      at time zone 'America/Sao_Paulo')::int          as mes,
   m.data->>'ShipmentProcessType'                                    as process_type,
-  -- mesmos 5 baldes de mart.desempenho_base (coerência entre as telas)
-  case when m.data->>'ShipmentProcessType' in ('Ocean Import','Air Import','Ocean Export','Air Export')
-       then m.data->>'ShipmentProcessType' else 'Others & Road' end  as modalidade,
+  -- Mesmos 5 baldes de mart.desempenho_base, mas esta view usa OUTRO vocabulário:
+  -- 'OI - Ocean Impo' e não 'Ocean Import' (medido no dado real de 2025-01). Sem a
+  -- tradução, todo processo caía em 'Others & Road' e o filtro de modalidade da tela
+  -- ficava inerte.
+  case m.data->>'ShipmentProcessType'
+       when 'OI - Ocean Impo' then 'Ocean Import'
+       when 'OE - Ocean Expo' then 'Ocean Export'
+       when 'AI - Air Impo'   then 'Air Import'
+       when 'AE - Air Expo'   then 'Air Export'
+       else 'Others & Road' end                                     as modalidade,
   -- nome canônico: o Tier2 grava a mesma empresa com grafias diferentes (ver
   -- 20260720160000_m1_cliente_canonico.sql), o que duplicaria linhas e dropdown.
   coalesce(cc.customer_name, btrim(m.data->>'ShipmentBusinessPartner')) as customer_name,
@@ -85,7 +93,13 @@ select
   m.data->>'InvoiceProposalType'                                    as tipo,
   m.data->>'InvoiceProposalSourceType'                              as origem,
   nullif(btrim(m.data->>'CurrencyISOCode'), '')                     as moeda,
-  coalesce((nullif(m.data->>'InvoiceProposalAmount',''))::numeric, 0)              as valor_original,
+  -- O Tier2 guarda o "Valor Original" como MAGNITUDE (sempre positivo — medido: 0 de
+  -- 2.636 Payable negativos), e põe o sinal só em ForecastAmountSys/SettlementAmount.
+  -- O relatório de origem exibe custo como "USD -6400,00", então o sinal é reposto aqui.
+  case when m.data->>'InvoiceProposalType' = 'Payable'
+       then -coalesce((nullif(m.data->>'InvoiceProposalAmount',''))::numeric, 0)
+       else  coalesce((nullif(m.data->>'InvoiceProposalAmount',''))::numeric, 0)
+  end                                                               as valor_original,
   (nullif(m.data->>'InvoiceProposalForecastExchangeRate',''))::numeric             as taxa,
   coalesce((nullif(m.data->>'InvoiceProposalForecastAmountSys',''))::numeric, 0)   as valor_brl,
   coalesce((nullif(m.data->>'InvoiceProposalSettlementAmount',''))::numeric, 0)    as liquidado,
@@ -261,20 +275,16 @@ grant execute on function mart.profitmap_totais(int, text, text, text) to authen
 grant execute on function mart.profitmap_detalhe(text) to authenticated;
 
 -- ---------------------------------------------------------------------------
--- Sanidade — rodar DEPOIS do primeiro sync, antes de liberar a tela.
+-- Verificado contra o dado real (2025-01, 5.955 linhas, em 2026-08-18)
 -- ---------------------------------------------------------------------------
--- 1) O sinal do Payable é negativo, como no relatório do Tier2?
---      select tipo, count(*), min(valor_brl), max(valor_brl)
---      from mart.profitmap_base group by 1;
---    Esperado: Payable com max(valor_brl) <= 0. Se vier positivo, trocar as somas de
---    valor_brl por -abs() no lado Payable (e revisar Total/Profit%).
+-- 1) Tipos: só 'Payable' (TypeCode 0) e 'Receivable' (TypeCode 1). Nenhuma outra grafia.
+-- 2) Sinal: ver bloco no topo. Total = Payable + Receivable confirmado.
+-- 3) Modalidade: o vocabulário é 'OI - Ocean Impo' / 'OE - Ocean Expo' / 'AI - Air Impo' /
+--    'AE - Air Expo' — traduzido acima para os 5 baldes do resto do app.
 --
--- 2) Os tipos são mesmo 'Payable'/'Receivable' (e não outra grafia)?
---      select tipo, origem, count(*) from mart.profitmap_base group by 1, 2 order by 3 desc;
---    Qualquer valor fora desses dois cai fora das bandas e some do Total.
---
--- 3) O Profit% do total geral bate com o relatório?
---      select * from mart.profitmap_totais(2025);
---    No relatório de referência o total exibia 17,99% enquanto Total÷Receivable dava
---    16,44% — divergência não explicada. Conferir qual das duas o Tier2 considera certa
---    antes de tratar o rodapé como número oficial.
+-- AINDA EM ABERTO — Profit% do total geral:
+--   select * from mart.profitmap_totais(2025);
+-- No relatório de referência o rodapé exibia 17,99% enquanto Total÷Receivable dava
+-- 16,44%. Nas linhas de processo a fórmula bate exatamente (10,33% / 15,60% / 7,43% /
+-- 77,86%), então a divergência é só no agregado geral. Conferir contra o Tier2 antes de
+-- tratar o rodapé como número oficial.

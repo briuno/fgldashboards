@@ -300,7 +300,10 @@ Deno.serve(async (req) => {
       // repete dezenas de vezes, e paginar com $skip sobre chave não-única pula e duplica
       // linhas silenciosamente.
       const results: Record<string, unknown>[] = [];
-      const size = Number(params.get("size") ?? 200);
+      // 150 e NUNCA mais: o Tier2 limita a página em 150 linhas. Com size=200 o laço de
+      // recoverByFilter lia "150 < 200" como última página e parava no primeiro lote —
+      // medido em 2025-01: trazia 150 de 5.955 linhas (97,5% do mês perdido, sem erro).
+      const size = Math.min(Number(params.get("size") ?? 150), 150);
       const rodar = async (ym: string) => {
         const res = await recoverByFilter(
           sql, token, profitMapMonthFilter(ym), "Oid asc", size, started, 0,
