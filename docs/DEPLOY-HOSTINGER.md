@@ -32,9 +32,10 @@ Em **Settings → Secrets and variables → Actions** (repo `briuno/fgldashboard
 
 ### Deploy manual (quando precisar)
 - **Pelo GitHub:** aba **Actions** → *Deploy → Hostinger* → **Run workflow**.
-- **Local:** empacote o código e rode o script:
+- **Local:** empacote o código e rode o script (exclua sempre `.env`/`.env.local` — o
+  `.env` local guarda o `SUPABASE_ACCESS_TOKEN`, um PAT de Management API):
   ```bash
-  zip -r app.zip . -x ".git/*" "node_modules/*" ".next/*" "app.zip"
+  zip -r app.zip . -x ".git/*" "node_modules/*" ".next/*" "app.zip" ".env" ".env.local"
   HOSTINGER_API_TOKEN=xxxx node scripts/hostinger-deploy.mjs app.zip
   ```
 

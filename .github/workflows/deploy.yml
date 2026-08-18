@@ -36,8 +36,10 @@ jobs:
           npm run build
 
       # Empacota só o código-fonte (a Hostinger reconstrói no servidor).
+      # .env/.env.local nunca existem no runner (git-ignored), mas ficam excluídos
+      # aqui também por segurança — mesma exclusão do fluxo de deploy manual.
       - name: Empacotar
-        run: zip -r app.zip . -x ".git/*" "node_modules/*" ".next/*" "app.zip"
+        run: zip -r app.zip . -x ".git/*" "node_modules/*" ".next/*" "app.zip" ".env" ".env.local"
 
       - name: Publicar na Hostinger
         env:
