@@ -43,10 +43,17 @@ create index if not exists invoice_proposal_profit_map_process_id_idx
 create index if not exists invoice_proposal_profit_map_process_oid_idx
   on raw.invoice_proposal_profit_map ((data->>'ShipmentProcessOID'));
 
--- NOTA de desempenho: o filtro por ano sai de ShipmentProcessDate convertido para
--- America/Sao_Paulo, e `at time zone` é STABLE — não dá para indexar a expressão. Em
--- ~1M de linhas a listagem de processos vira seq scan. Se doer, o próximo passo é uma
--- matview de mart.profitmap_processo_agg com refresh no fim do sync (não antes de medir).
+-- DESEMPENHO do filtro por ano. Medido em 253.762 linhas: a listagem levava 15,8 s e o
+-- statement_timeout do papel `authenticated` é 8 s — a RPC estourava, o app caía no
+-- fallback de lista vazia e a tela dizia "Sem lançamentos" como se não houvesse dado.
+--
+-- O ano sai de "at time zone 'America/Sao_Paulo'", que é STABLE e não pode ser indexado.
+-- Mas TODAS as linhas trazem ShipmentProcessDate com offset -03:00 (o Brasil extinguiu o
+-- horário de verão em 2019), então o prefixo YYYY-MM-DD do texto É a data local de SP e
+-- um btree sobre o texto permite range scan. Ver `process_date_txt` na base e o
+-- pré-filtro nas funções. Resultado: 15,8 s → 1,3 s.
+create index if not exists invoice_proposal_profit_map_data_idx
+  on raw.invoice_proposal_profit_map ((data->>'ShipmentProcessDate'));
 
 -- ---------------------------------------------------------------------------
 -- mart — base achatada
@@ -64,6 +71,8 @@ select
   m.data->>'ShipmentProcessID'                                      as process_id,
   (nullif(m.data->>'ShipmentProcessOID',''))::uuid                  as process_oid,
   (nullif(m.data->>'ShipmentProcessDate',''))::timestamptz          as process_date,
+  -- texto cru, para o pré-filtro indexável das RPCs (ver o índice ..._data_idx acima)
+  m.data->>'ShipmentProcessDate'                                    as process_date_txt,
   extract(year  from (nullif(m.data->>'ShipmentProcessDate',''))::timestamptz
                      at time zone 'America/Sao_Paulo')::int          as ano,
   extract(month from (nullif(m.data->>'ShipmentProcessDate',''))::timestamptz
@@ -172,7 +181,12 @@ as $$
                / nullif(sum(b.valor_brl) filter (where b.tipo = 'Receivable'), 0) * 100, 2),
          count(*)::int
   from mart.profitmap_base b
-  where b.ano = p_ano
+  -- Pré-filtro indexável, de propósito MAIS LARGO que o ano (30/12 a 02/01): o predicado
+  -- exato continua sendo b.ano. Assim, se o Tier2 um dia mudar o offset, o pré-filtro
+  -- nunca exclui uma linha que o `ano` incluiria.
+  where b.process_date_txt >= ((p_ano - 1)::text || '-12-30')
+    and b.process_date_txt <  ((p_ano + 1)::text || '-01-02')
+    and b.ano = p_ano
     and (p_cliente is null    or b.customer_name = p_cliente)
     and (p_modalidade is null or b.modalidade = p_modalidade)
     and (p_busca is null      or b.process_id ilike '%' || p_busca || '%')
@@ -207,7 +221,12 @@ as $$
          round(sum(b.valor_brl)
                / nullif(sum(b.valor_brl) filter (where b.tipo = 'Receivable'), 0) * 100, 2)
   from mart.profitmap_base b
-  where b.ano = p_ano
+  -- Pré-filtro indexável, de propósito MAIS LARGO que o ano (30/12 a 02/01): o predicado
+  -- exato continua sendo b.ano. Assim, se o Tier2 um dia mudar o offset, o pré-filtro
+  -- nunca exclui uma linha que o `ano` incluiria.
+  where b.process_date_txt >= ((p_ano - 1)::text || '-12-30')
+    and b.process_date_txt <  ((p_ano + 1)::text || '-01-02')
+    and b.ano = p_ano
     and (p_cliente is null    or b.customer_name = p_cliente)
     and (p_modalidade is null or b.modalidade = p_modalidade)
     and (p_busca is null      or b.process_id ilike '%' || p_busca || '%')
