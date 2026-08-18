@@ -304,21 +304,34 @@ Deno.serve(async (req) => {
       // recoverByFilter lia "150 < 200" como última página e parava no primeiro lote —
       // medido em 2025-01: trazia 150 de 5.955 linhas (97,5% do mês perdido, sem erro).
       const size = Math.min(Number(params.get("size") ?? 150), 150);
-      const rodar = async (ym: string) => {
+      // Devolve `true` só quando o mês foi percorrido INTEIRO. recoverByFilter para no
+      // meio da paginação quando o orçamento de tempo estoura, e nesse caso o mês está
+      // parcial — quem chama precisa saber para não dar o mês por concluído.
+      // &skip=N retoma um mês do meio. Sem isso, um mês que contém linha que o Tier2 nega
+      // (502) nunca fecha: a bissecção de recuperação custa 3 tentativas com backoff por
+      // página falha, come o orçamento, e a execução seguinte recomeça do zero e repaga o
+      // mesmo custo. `nextSkip` volta no resultado justamente para encadear.
+      const startSkip = Number(params.get("skip") ?? 0);
+      const rodar = async (ym: string, skip = 0): Promise<boolean> => {
         const res = await recoverByFilter(
-          sql, token, profitMapMonthFilter(ym), "Oid asc", size, started, 0,
+          sql, token, profitMapMonthFilter(ym), "Oid asc", size, started, skip,
           PROFITMAP_SELECT, PROFITMAP_ENTITY,
         );
         rowsUpserted += res.got; rowsLost += res.lost;
-        results.push({ month: ym, ...res });
+        const completo = Date.now() - started <= BUDGET_MS;
+        results.push({ month: ym, ...res, ...(completo ? {} : { parcial: true }) });
+        return completo;
       };
 
       const meses = (params.get("months") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
       if (meses.length) {
         mode = "profitmap-months";
+        // &skip só faz sentido para o PRIMEIRO mês da lista (é o que se está retomando).
+        let skip = startSkip;
         for (const ym of meses) {
           if (Date.now() - started > BUDGET_MS) { log.timeBudget = true; break; }
-          await rodar(ym);
+          await rodar(ym, skip);
+          skip = 0;
         }
       } else {
         await sql`insert into etl.sync_state (entity, mode, delta_cursor)
@@ -334,8 +347,17 @@ Deno.serve(async (req) => {
         if (cursor <= STOP_MONTH) {
           // ---- BACKFILL (resumível: o cron chama de novo até backfillComplete) ----
           mode = "profitmap-backfill";
-          while (Date.now() - started < BUDGET_MS && cursor <= STOP_MONTH) {
-            await rodar(cursor);
+          while (cursor <= STOP_MONTH) {
+            if (Date.now() - started > BUDGET_MS) { log.timeBudget = true; break; }
+            // NÃO avançar o cursor num mês parcial, senão ele fica pela metade para
+            // sempre — o backfill segue em frente e nunca volta. Medido antes desta
+            // guarda: 10 meses truncados, entre eles 2026-01 com 105 linhas para 81
+            // processos (o normal é ~22 por processo).
+            if (!(await rodar(cursor))) {
+              log.timeBudget = true;
+              log.mesParcial = cursor; // refeito na próxima execução
+              break;
+            }
             cursor = nextMonth(cursor);
             await sql`update etl.sync_state set delta_cursor=${cursor}, updated_at=now()
                       where entity=${PROFITMAP_ENTITY}`;
